@@ -1,0 +1,414 @@
+═══════════════════════════════════════════════════════════════════════
+ GG 쇼핑몰 플랫폼 — 매개변수(파라미터) 정리
+═══════════════════════════════════════════════════════════════════════
+
+작성일 : 2026-05-14
+범위   : 백엔드(gg/, FastAPI) 전체 + 환경변수
+참고   : 프론트엔드는 web/ (Next.js)
+
+────────────────────────────────────────────────────────────────────────
+[ "매개변수"란? ]
+프로그램이 동작할 때 바깥에서 받아 쓰는 "값"을 말합니다.
+이 문서는 매개변수를 4종류로 나눠 정리합니다.
+
+  1. 환경변수      : 프로그램을 켤 때 미리 정해두는 설정값 (.env 파일)
+  2. API 매개변수  : 화면(프론트)이 서버에 요청을 보낼 때 같이 싣는 값
+  3. 데이터 스키마 : API가 주고받는 데이터 본문의 항목(필드)들
+  4. DB 모델       : 데이터베이스 테이블에 저장되는 컬럼들
+
+[ API 매개변수의 위치별 종류 — 미리 알아두면 2번 섹션이 쉬워집니다 ]
+  · 경로(Path)   : 주소 자체에 들어가는 값.  예) /products/{product_no}
+  · 쿼리(Query)  : 주소 뒤 ?key=value 형태.  예) /products?limit=20&offset=0
+  · 본문(Body)   : 요청에 JSON으로 실어 보내는 값 (주로 POST/PUT)
+  · 폼(Form)     : 파일 업로드가 섞일 때 쓰는 multipart 형식
+  · 헤더(Header) : Authorization 같은 부가 정보. 로그인 토큰이 여기 실림
+
+
+═══════════════════════════════════════════════════════════════════════
+ 1. 환경변수 (설정 매개변수)
+═══════════════════════════════════════════════════════════════════════
+정의 위치 : gg/app/core/config.py  (실제 값은 gg/.env 파일에서 읽음)
+표기      : 이름  (자료형, 기본값) — 설명
+⚠ 표시    : 외부에 노출되면 안 되는 비밀값. 깃에 올리거나 공유 금지.
+
+── Cafe24 API 연동 ───────────────────────────────────────────────────
+  CAFE24_CLIENT_ID       (문자열, 필수)
+      Cafe24 개발자센터에서 앱 등록 시 발급되는 클라이언트 ID.
+  CAFE24_CLIENT_SECRET   (문자열, 필수)  ⚠ 비밀
+      Cafe24 앱의 시크릿 키. OAuth 토큰 발급·갱신에 사용.
+  CAFE24_MALL_ID         (문자열, 필수)
+      쇼핑몰 ID. 모든 Cafe24 API 주소에 들어감 (예: mymall).
+  CAFE24_API_VERSION     (문자열, 기본 "2026-03-01")
+      호출할 Cafe24 API 버전. 요청 헤더에 실림.
+  CAFE24_ACCESS_TOKEN    (문자열, 기본 "")  ⚠ 비밀
+      OAuth2 액세스 토큰. 유효기간 약 2시간, 만료 시 자동 갱신됨.
+  CAFE24_REFRESH_TOKEN   (문자열, 기본 "")  ⚠ 비밀
+      OAuth2 리프레시 토큰. 액세스 토큰이 만료됐을 때 재발급에 사용.
+  CAFE24_REDIRECT_URI    (문자열, 기본 "http://localhost:8000/auth/cafe24/callback")
+      Cafe24 로그인 완료 후 돌아올 서버 주소(콜백).
+  CAFE24_SCOPES          (문자열, 기본 "mall.read_product,mall.write_product,
+                                        mall.read_category,mall.write_category")
+      Cafe24에 요청할 권한 범위 목록.
+
+── 서비스 주소 / DB ──────────────────────────────────────────────────
+  FRONTEND_URL           (문자열, 기본 "http://localhost:3000")
+      프론트엔드 주소. OAuth 처리 후 이쪽으로 리다이렉트함.
+  DATABASE_URL           (문자열, 기본 "postgresql+asyncpg://mac@localhost/gg_db")
+      데이터베이스 접속 주소. (회원 정보 등은 이 DB에 저장)
+
+── AI(Gemini) 설정 ───────────────────────────────────────────────────
+  GEMINI_API_KEY         (문자열, 기본 "mock-key")  ⚠ 비밀
+      AI 마케팅 문구 생성에 쓰는 API 키.
+  GEMINI_MODEL           (문자열, 기본 "gemini-2.5-pro")
+      사용할 AI 모델 이름.
+  USE_MOCK_AI            (참/거짓, 기본 True)
+      True면 실제 AI를 부르지 않고 가짜 응답을 사용 (개발·테스트용).
+  AI_MAX_TOKENS          (정수, 기본 2048)
+      AI 응답의 최대 길이.
+
+── JWT (로그인 토큰) 설정 ────────────────────────────────────────────
+  JWT_SECRET             (문자열, 기본 "change-me-in-production-...")  ⚠ 비밀
+      로그인 토큰 서명에 쓰는 비밀키. 운영 환경에서는 반드시 변경.
+  JWT_ALGORITHM          (문자열, 기본 "HS256")
+      JWT 서명 알고리즘.
+  JWT_ACCESS_EXPIRES_MIN (정수, 기본 30)
+      액세스 토큰 유효 시간(분).
+  JWT_REFRESH_EXPIRES_DAYS (정수, 기본 14)
+      리프레시 토큰 유효 기간(일).
+
+── 프론트엔드 환경변수 (web/.env.local) ─────────────────────────────
+  NEXT_PUBLIC_API_BASE   (문자열, 기본 "http://127.0.0.1:8000")
+      프론트가 호출할 백엔드 서버 주소.
+
+
+═══════════════════════════════════════════════════════════════════════
+ 2. 백엔드 API 엔드포인트 매개변수
+═══════════════════════════════════════════════════════════════════════
+표기 : [메서드] 경로   (인증 필요 여부)
+       └ 매개변수 이름 (위치/자료형, 필수·기본값) — 설명
+
+──────────────────────────────────────────────
+ 2-1. 헬스체크  (router: health.py, 접두사 없음)
+──────────────────────────────────────────────
+[GET] /          (인증 불필요)
+      매개변수 없음. 서버가 살아있는지 확인.
+
+[GET] /health    (인증 불필요)
+      매개변수 없음. DB 연결까지 포함해 확인.
+
+──────────────────────────────────────────────
+ 2-2. 인증  (router: auth.py, 접두사 /auth)
+──────────────────────────────────────────────
+[POST] /auth/signup        (인증 불필요)
+      └ 본문 = SignupRequest 스키마 (→ 3-1 참고)
+
+[POST] /auth/login         (인증 불필요)
+      └ 본문 = LoginRequest 스키마 (→ 3-1 참고)
+
+[POST] /auth/refresh       (인증 불필요)
+      └ 본문 = RefreshRequest 스키마 (→ 3-1 참고)
+
+[GET] /auth/me             (인증 필요)
+      └ 헤더 Authorization: Bearer <액세스 토큰>
+
+[GET] /auth/cafe24/login   (인증 불필요)
+      매개변수 없음. Cafe24 로그인 페이지로 리다이렉트.
+
+[GET] /auth/cafe24/callback (인증 불필요 — Cafe24가 자동 호출)
+      └ code  (쿼리/문자열, 필수)     — Cafe24가 발급한 인가 코드
+      └ state (쿼리/문자열, 기본 "")  — CSRF 방지용 임의 문자열
+
+──────────────────────────────────────────────
+ 2-3. 상품 관리  (router: products.py, 접두사 /products)
+       ※ 모든 엔드포인트 인증 필요
+──────────────────────────────────────────────
+[GET] /products/                  (인증 필요)
+      └ limit  (쿼리/정수, 기본 20, 1~100) — 한 번에 가져올 상품 수
+      └ offset (쿼리/정수, 기본 0, 0 이상)  — 건너뛸 개수(페이지네이션)
+
+[GET] /products/{product_no}      (인증 필요)
+      └ product_no (경로/정수, 필수) — 조회할 상품 번호
+
+[POST] /products/                 (인증 필요, 폼 형식)
+      └ product_name      (폼/문자열, 필수)        — 상품명
+      └ price             (폼/실수, 필수, 0 초과)  — 판매가
+      └ supply_price      (폼/실수, 선택)          — 공급가(생략 시 판매가와 동일)
+      └ description       (폼/문자열, 필수)        — 마케팅 상세 문구(HTML 가능)
+      └ category_no       (폼/정수, 선택)          — 카테고리 번호
+      └ display           (폼/문자열, 기본 "T")    — 진열 여부: T / F
+      └ selling           (폼/문자열, 기본 "T")    — 판매 여부: T / F
+      └ detail_image_file (폼/파일, 선택)          — 대표(상세) 이미지
+      └ list_image_file   (폼/파일, 선택)          — 목록 이미지
+
+[PUT] /products/{product_no}      (인증 필요, 폼 형식)
+      └ product_no          (경로/정수, 필수)      — 수정할 상품 번호
+      └ product_name        (폼/문자열, 선택)      — 상품명
+      └ price               (폼/실수, 선택, 0 초과)— 판매가
+      └ supply_price        (폼/실수, 선택, 0 초과)— 공급가
+      └ description         (폼/문자열, 선택)      — 마케팅 상세 문구
+      └ category_no         (폼/정수, 선택)        — 카테고리 번호
+      └ display             (폼/문자열, 선택)      — 진열 여부: T / F
+      └ selling             (폼/문자열, 선택)      — 판매 여부: T / F
+      └ delete_detail_image (폼/참거짓, 기본 False)— 대표 이미지 삭제 여부
+      └ delete_list_image   (폼/참거짓, 기본 False)— 목록 이미지 삭제 여부
+      └ detail_image_file   (폼/파일, 선택)        — 대표 이미지 교체 파일
+      └ list_image_file     (폼/파일, 선택)        — 목록 이미지 교체 파일
+
+[DELETE] /products/{product_no}   (인증 필요)
+      └ product_no (경로/정수, 필수) — 삭제할 상품 번호
+
+──────────────────────────────────────────────
+ 2-4. AI  (router: ai.py, 접두사 /ai)
+──────────────────────────────────────────────
+[POST] /ai/marketing-copy         (인증 필요)
+      └ 본문 = AIMarketingCopyRequest 스키마 (→ 3-3 참고)
+
+──────────────────────────────────────────────
+ 2-5. 카테고리  (router: categories.py, 접두사 /categories)
+──────────────────────────────────────────────
+[GET] /categories/                (인증 필요)
+      매개변수 없음. Cafe24의 카테고리 목록을 그대로 가져옴.
+
+──────────────────────────────────────────────
+ 2-6. 공개 쇼핑몰  (router: shop.py, 접두사 /shop)
+       ※ 손님이 보는 화면. 모두 인증 불필요
+──────────────────────────────────────────────
+[GET] /shop/{username}            (인증 불필요)
+      └ username (경로/문자열, 필수) — 쇼핑몰 주인의 아이디
+
+[GET] /shop/{username}/products   (인증 불필요)
+      └ username (경로/문자열, 필수)        — 쇼핑몰 주인의 아이디
+      └ limit    (쿼리/정수, 기본 20, 1~100)— 한 번에 가져올 상품 수
+      └ offset   (쿼리/정수, 기본 0, 0 이상) — 건너뛸 개수(페이지네이션)
+
+[GET] /shop/{username}/products/{product_no}  (인증 불필요)
+      └ username   (경로/문자열, 필수) — 쇼핑몰 주인의 아이디
+      └ product_no (경로/정수, 필수)   — 상품 번호
+
+[GET] /shop/{username}/categories (인증 불필요)
+      └ username (경로/문자열, 필수) — 쇼핑몰 주인의 아이디
+      ※ category-grid 블록 렌더링용 카테고리 목록.
+
+──────────────────────────────────────────────
+ 2-7. 쇼핑몰 빌더(시안)  (router: shop_template.py, 접두사 /shop-template)
+       ※ 모든 엔드포인트 인증 필요
+──────────────────────────────────────────────
+[GET] /shop-template/me           (인증 필요)
+      매개변수 없음. 내가 저장한 시안을 조회 (없으면 빈 시안).
+
+[PUT] /shop-template/me           (인증 필요)
+      └ 본문 = ShopTemplateUpdateRequest 스키마 (→ 3-5 참고)
+
+[POST] /shop-template/ai-design   (인증 필요)
+      └ 본문 = AIDesignRequest 스키마 (→ 3-5 참고)
+
+
+═══════════════════════════════════════════════════════════════════════
+ 3. 데이터 스키마 (요청/응답 본문의 필드)
+═══════════════════════════════════════════════════════════════════════
+표기 : 필드 이름 (자료형, 필수·기본값·제약) — 설명
+'?' 가 붙은 필드는 선택(없어도 됨)이라는 뜻.
+
+──────────────────────────────────────────────
+ 3-1. 인증 스키마  (schemas/auth.py)
+──────────────────────────────────────────────
+[SignupRequest] 회원가입 요청 본문
+  email          (이메일, 필수)              — 이메일 (로그인 ID 겸용)
+  username       (문자열, 필수, 3~50자)      — 화면 표시용 아이디
+  password       (문자열, 필수, 8~128자)     — 비밀번호 (영문+숫자 필수)
+  full_name?     (문자열, 선택, ≤100자)      — 실명
+  phone?         (문자열, 선택, ≤20자)       — 휴대폰 번호
+  shop_name?     (문자열, 선택, ≤100자)      — 운영 중인 쇼핑몰 이름
+  cafe24_mall_id?(문자열, 선택, ≤50자)       — 본인 Cafe24 mall_id
+
+[LoginRequest] 로그인 요청 본문
+  username_or_email (문자열, 필수) — 아이디 또는 이메일
+  password          (문자열, 필수) — 비밀번호
+
+[RefreshRequest] 토큰 재발급 요청 본문
+  refresh_token  (문자열, 필수) — 리프레시 토큰
+
+[TokenResponse] 로그인·재발급 응답 본문
+  access_token   (문자열)              — 액세스 토큰
+  refresh_token  (문자열)              — 리프레시 토큰
+  token_type     (문자열, 기본 "bearer")
+  expires_in     (정수)                — 액세스 토큰 만료까지 남은 초
+
+[UserResponse] 사용자 정보 응답 본문
+  id                   (정수)        — 사용자 고유 번호
+  email                (문자열)
+  username             (문자열)
+  full_name?           (문자열)
+  phone?               (문자열)
+  shop_name?           (문자열)
+  cafe24_mall_id?      (문자열)
+  is_active            (참거짓)      — 활성 계정 여부
+  is_admin             (참거짓)      — 관리자 여부
+  onboarding_completed (참거짓, 기본 False) — 쇼핑몰 꾸미기 완료 여부
+  created_at           (날짜시간)    — 가입 일시
+
+──────────────────────────────────────────────
+ 3-2. 상품 스키마  (schemas/product.py)
+──────────────────────────────────────────────
+[ProductSummary] 상품 목록·단건 응답
+  product_no     (정수)    — 상품 번호 (Cafe24 발급)
+  product_code?  (문자열)  — 상품 코드
+  product_name   (문자열)  — 상품명
+  price?         (실수)    — 판매가
+  description?   (문자열)  — 상세 문구
+  detail_image?  (문자열)  — 대표(상세) 이미지 URL
+  list_image?    (문자열)  — 목록 이미지 URL
+  display?       (문자열)  — 진열 여부 (T/F)
+  selling?       (문자열)  — 판매 여부 (T/F)
+  category_no?   (정수)    — 카테고리 번호
+
+[ProductCreateRequest] 상품 등록 요청
+  product_name   (문자열, 필수)         — 상품명
+  price          (실수, 필수, 0 초과)   — 판매가
+  supply_price?  (실수, 선택)           — 공급가
+  description    (문자열, 필수)         — 마케팅 상세 문구
+  category_no?   (정수, 선택)           — 카테고리 번호
+  display        (문자열, 기본 "T")     — 진열: T/F
+  selling        (문자열, 기본 "T")     — 판매: T/F
+
+[ProductUpdateRequest] 상품 수정 요청 (모든 필드 선택)
+  product_name?       (문자열)            — 상품명
+  price?              (실수, 0 초과)      — 판매가
+  supply_price?       (실수, 0 초과)      — 공급가
+  description?        (문자열)            — 마케팅 상세 문구
+  category_no?        (정수)              — 카테고리 번호
+  display?            (문자열)            — 진열: T/F
+  selling?            (문자열)            — 판매: T/F
+  delete_detail_image (참거짓, 기본 False)— 대표 이미지 삭제 여부
+  delete_list_image   (참거짓, 기본 False)— 목록 이미지 삭제 여부
+
+[ProductListResponse] 상품 목록 응답
+  items  (ProductSummary 목록)
+  limit  (정수)
+  offset (정수)
+
+[ProductMutationResponse] 상품 등록·수정 완료 응답
+  product  (ProductSummary)   — 처리된 상품 정보
+  message  (문자열)           — 결과 메시지
+  warnings (문자열 목록)      — 상품은 처리됐으나 이미지 등에서 생긴 경고
+
+[ProductDeleteResponse] 상품 삭제 완료 응답
+  product_no (정수)
+  message    (문자열)
+
+──────────────────────────────────────────────
+ 3-3. AI 스키마  (schemas/ai.py)
+──────────────────────────────────────────────
+[AIMarketingCopyRequest] AI 문구 추천 요청
+  product_name          (문자열, 필수)        — 상품명
+  price?                (실수, 0 초과)        — 판매가
+  original_description? (문자열)              — 기존 문구(수정 시 함께 전달)
+  custom_prompt?        (문자열)              — 추가 톤앤매너 지시
+                                              (예: "20대 여성 타깃, 고급스럽게")
+
+[AIMarketingCopyResponse] AI 문구 추천 응답
+  description (문자열)        — AI가 생성한 마케팅 상세 문구
+  tags        (문자열 목록)  — AI가 추천한 분류 태그
+
+──────────────────────────────────────────────
+ 3-4. 카테고리 스키마  (schemas/category.py)
+──────────────────────────────────────────────
+[CategoryResponse] 카테고리 한 건
+  category_no         (정수)   — 카테고리 번호
+  category_name       (문자열) — 카테고리 이름
+  parent_category_no? (정수)   — 상위 카테고리 번호 (최상위면 없음)
+  depth?              (정수)   — 카테고리 깊이 (1=대분류, 2=중분류 …)
+
+[CategoryListResponse] 카테고리 목록
+  items (CategoryResponse 목록)
+  total (정수) — 총 개수
+
+──────────────────────────────────────────────
+ 3-5. 쇼핑몰 빌더(시안) 스키마  (schemas/shop_template.py)
+──────────────────────────────────────────────
+[ShopBlock] 시안을 구성하는 블록 한 개
+  id    (문자열) — 블록 고유 ID (드래그 재정렬용)
+  type  (문자열) — 블록 종류 (hero / featured-products / category-grid /
+                  banner / testimonial / newsletter)
+  props (객체)   — 블록별 자유 속성 (헤드라인, 제목 등)
+
+[ShopTheme] 시안의 색·폰트 설정
+  primary_color?    (문자열) — 주요 색
+  accent_color?     (문자열) — 강조 색
+  background_color? (문자열) — 배경 색
+  text_color?       (문자열) — 글자 색
+  font_family?      (문자열) — 글꼴
+  tone?             (문자열) — 분위기 키워드 (minimal / bold / playful …)
+
+[ShopTemplate] 시안 전체 구조 (DB의 shop_template 컬럼에 저장)
+  preset_id? (문자열)         — 기준이 된 시안 ID
+  blocks     (ShopBlock 목록) — 블록 배열 (위→아래 순서)
+  theme      (ShopTheme)      — 색·폰트 설정
+
+[ShopTemplateUpdateRequest] 시안 저장 요청
+  preset_id? (문자열)
+  blocks     (ShopBlock 목록, 필수)
+  theme      (ShopTheme, 필수)
+  finalize   (참거짓, 기본 False) — True면 "쇼핑몰 꾸미기 완료"로 표시
+
+[AIDesignRequest] 시안에 어울리는 테마·카피 추천 요청
+  preset_id?    (문자열)
+  blocks        (ShopBlock 목록) — 현재 블록 구성
+  shop_name?    (문자열)         — 쇼핑몰 이름
+  extra_prompt? (문자열)         — 사용자 톤앤매너 지시
+
+[AIDesignResponse] AI 추천 응답
+  theme              (ShopTheme)      — 추천 색·폰트
+  hero_headline?     (문자열)         — 히어로 블록 추천 헤드라인
+  hero_subcopy?      (문자열)         — 히어로 블록 추천 보조 문구
+  hero_cta?          (문자열)         — 히어로 블록 추천 버튼 문구
+  section_copy       (문자열 사전)    — 블록 종류별 추천 문구
+  recommended_blocks (문자열 목록)    — AI가 추천하는 블록 순서
+
+
+═══════════════════════════════════════════════════════════════════════
+ 4. 데이터베이스 모델 (DB 테이블 컬럼)
+═══════════════════════════════════════════════════════════════════════
+표기 : 컬럼 이름 (자료형, 제약) — 설명
+
+──────────────────────────────────────────────
+ 4-1. users 테이블  (models/user.py)
+       가입한 사장님 회원 정보
+──────────────────────────────────────────────
+  id                   (정수, PK, 자동증가)
+  email                (문자열 255, 고유, 필수)
+  username             (문자열 50, 고유, 필수)
+  password_hash        (문자열 255, 필수)        — bcrypt 해시 (평문 저장 안 함)
+  full_name?           (문자열 100)
+  phone?               (문자열 20)
+  shop_name?           (문자열 100)
+  cafe24_mall_id?      (문자열 50)
+  is_active            (참거짓, 기본 True)       — 활성 계정 여부
+  is_admin             (참거짓, 기본 False)      — 관리자 여부
+  shop_template?       (JSON)                    — 사장님이 확정한 시안
+                                                   (preset_id + blocks + theme)
+  onboarding_completed (참거짓, 기본 False)      — 쇼핑몰 꾸미기 완료 여부
+  created_at           (날짜시간, 자동)          — 생성 일시
+  updated_at           (날짜시간, 자동)          — 수정 일시
+
+──────────────────────────────────────────────
+ 4-2. user_products 테이블  (models/user_product.py)
+       "어느 회원이 어떤 상품을 등록했는지"만 저장
+       (상품의 이름·가격 등 실데이터는 Cafe24에만 있음)
+──────────────────────────────────────────────
+  id         (정수, PK, 자동증가)
+  user_id    (정수, FK → users.id, 필수, 인덱스) — 상품을 등록한 회원
+  product_no (정수, 필수, 고유)                  — Cafe24 상품 번호
+  created_at (날짜시간, 필수)                    — 등록 일시
+
+
+═══════════════════════════════════════════════════════════════════════
+ 메모
+═══════════════════════════════════════════════════════════════════════
+· 인증이 필요한 엔드포인트는 요청 헤더에 다음을 실어야 함:
+      Authorization: Bearer <액세스 토큰>
+  (액세스 토큰은 /auth/login 또는 /auth/refresh 로 발급)
+· 상품의 실제 데이터(이름·가격·이미지)는 이 서버 DB가 아니라 Cafe24에 저장됨.
+  이 서버는 "소유권 매핑(user_products)"과 "회원 정보(users)"만 보관.
+· ⚠ 표시된 환경변수는 비밀값 — .env 파일은 깃에 올리지 말 것.
+═══════════════════════════════════════════════════════════════════════

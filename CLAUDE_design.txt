@@ -1,0 +1,115 @@
+#Products (상품 기본)
+
+GET /products → 상품 목록 조회
+GET /products/count → 상품 수 조회
+GET /products/{product_no} → 상품 단건 조회
+POST /products → 상품 생성
+PUT /products/{product_no} → 상품 수정
+DELETE /products/{product_no} → 상품 삭제
+
+#Products images (대표 이미지)
+
+POST /products/{product_no}/images → 이미지 업로드
+POST /products/images → 상품 번호 없이 이미지 업로드
+DELETE /products/{product_no}/images → 이미지 삭제
+
+#Products additionalimages (추가 이미지)
+
+POST /products/{product_no}/additionalimages → 추가 이미지 등록
+PUT /products/{product_no}/additionalimages/{additional_image_no} → 추가 이미지 수정
+DELETE /products/{product_no}/additionalimages/{additional_image_no} → 추가 이미지 삭제
+
+#Products decorationimages (꾸미기 이미지)
+
+GET /products/{product_no}/decorationimages → 꾸미기 이미지 목록 조회
+POST /products/{product_no}/decorationimages → 꾸미기 이미지 설정
+PUT /products/{product_no}/decorationimages/{decoration_no} → 꾸미기 이미지 수정
+DELETE /products/{product_no}/decorationimages/{decoration_no} → 꾸미기 이미지 삭제
+
+#Products options (옵션)
+
+GET /products/{product_no}/options → 옵션 목록 조회
+POST /products/{product_no}/options → 옵션 생성
+PUT /products/{product_no}/options → 옵션 수정
+DELETE /products/{product_no}/options/{option_no} → 옵션 삭제
+
+#Products variants (품목)
+
+GET /products/{product_no}/variants → 품목 목록 조회
+GET /products/{product_no}/variants/{variants_code} → 품목 단건 조회
+PUT /products/{product_no}/variants/{variants_code} → 품목 수정
+PUT /products/{product_no}/variants → 품목 일괄 수정
+DELETE /products/{product_no}/variants/{variants_code} → 품목 삭제
+
+#Products variants inventories (재고)
+
+GET /products/{product_no}/variants/{variants_code}/inventories → 재고 조회
+PUT /products/{product_no}/variants/{variants_code}/inventories → 재고 수정
+
+#Products tags (태그)
+
+GET /products/{product_no}/tags → 태그 목록 조회
+GET /products/{product_no}/tags/count → 태그 수 조회
+POST /products/{product_no}/tags → 태그 생성
+DELETE /products/{product_no}/tags/{tag_no} → 태그 삭제
+
+#Products seo (SEO)
+
+GET /products/{product_no}/seo → SEO 설정 조회
+PUT /products/{product_no}/seo → SEO 설정 수정
+
+#Products icons (아이콘)
+
+GET /products/{product_no}/icons → 아이콘 목록 조회
+POST /products/{product_no}/icons → 아이콘 설정
+PUT /products/{product_no}/icons/{icon_no} → 아이콘 수정
+DELETE /products/{product_no}/icons/{icon_no} → 아이콘 삭제
+
+#Products memos (메모)
+
+GET /products/{product_no}/memos → 메모 목록 조회
+GET /products/{product_no}/memos/{memo_no} → 메모 단건 조회
+POST /products/{product_no}/memos → 메모 생성
+PUT /products/{product_no}/memos/{memo_no} → 메모 수정
+DELETE /products/{product_no}/memos/{memo_no} → 메모 삭제
+
+#Products approve (승인)
+
+GET /products/{product_no}/approve → 승인 상태 조회
+POST /products/{product_no}/approve → 승인 요청
+PUT /products/{product_no}/approve → 승인 상태 수정
+
+#Products customproperties (사용자 정의 속성)
+
+GET /products/{product_no}/customproperties → 조회
+PUT /products/{product_no}/customproperties → 수정
+DELETE /products/{product_no}/customproperties → 삭제
+
+#Products discountprice / hits
+
+GET /products/{product_no}/discountprice → 할인가 조회
+GET /products/{product_no}/hits → 조회수 조회
+
+#Bundleproducts (묶음 상품)
+
+GET /bundleproducts → 묶음 상품 목록 조회
+GET /bundleproducts/{bundle_product_no} → 묶음 상품 단건 조회
+POST /bundleproducts → 묶음 상품 생성
+PUT /bundleproducts/{bundle_product_no} → 묶음 상품 수정
+DELETE /bundleproducts/{bundle_product_no} → 묶음 상품 삭제
+
+#Categories products (카테고리별 상품)
+
+GET /categories/{category_no}/products → 카테고리별 상품 목록 조회
+GET /categories/{category_no}/products/count → 카테고리별 상품 수 조회
+POST /categories/{category_no}/products → 카테고리에 상품 추가
+PUT /categories/{category_no}/products/{product_no} → 카테고리 상품 수정
+DELETE /categories/{category_no}/products/{product_no} → 카테고리 상품 삭제
+
+#Mains products (메인 카테고리 상품)
+
+GET /mains/{category_no}/products → 메인 카테고리 상품 목록 조회
+GET /mains/{category_no}/products/count → 메인 카테고리 상품 수 조회
+POST /mains/{category_no}/products → 메인 카테고리 상품 설정
+PUT /mains/{category_no}/products/{product_no} → 고정 정렬 수정
+DELETE /mains/{category_no}/products/{product_no} → 메인 카테고리 상품 삭제
