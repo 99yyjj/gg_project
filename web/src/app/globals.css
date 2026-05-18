@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #0f172a; /* slate-900 */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* 폼 컨트롤은 OS 다크 모드와 무관하게 항상 진한 검정 텍스트 + 흰 배경으로 통일 */
+input,
+textarea,
+select {
+  color: #0f172a; /* slate-900 */
+  background-color: #ffffff;
+  caret-color: #0f172a;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b; /* slate-500 */
+  opacity: 1;
+}

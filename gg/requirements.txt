@@ -1,0 +1,50 @@
+# GG 프로젝트 의존 패키지 목록
+# 설치 방법: pip install -r requirements.txt
+
+# --- 웹 프레임워크 ---
+fastapi==0.115.0          # FastAPI 본체
+uvicorn[standard]==0.30.0  # ASGI 서버 (FastAPI 실행용)
+
+# --- 데이터베이스 ---
+sqlalchemy==2.0.36         # ORM (Mapped, mapped_column 등 2.0 스타일)
+asyncpg>=0.29.0            # PostgreSQL 비동기 드라이버
+alembic>=1.13.0            # DB 스키마 마이그레이션 도구
+greenlet==3.4.0            # SQLAlchemy 비동기 지원 필수 의존성
+
+# --- 설정 관리 ---
+pydantic-settings==2.6.0   # BaseSettings: .env 파일 자동 로드
+
+# --- HTTP 클라이언트 ---
+httpx==0.27.0              # 비동기 HTTP 요청 (Cafe24 API 호출용)
+
+# --- AI 서비스 ---
+google-genai>=1.0.0         # Google Gemini API 공식 Python SDK (신버전)
+
+# --- 인증/보안 ---
+bcrypt>=4.2.0               # 비밀번호 해시
+pyjwt>=2.9.0                # JWT 발급/검증
+python-multipart>=0.0.12    # multipart/form-data (이미지 업로드)
+email-validator>=2.0        # Pydantic EmailStr 검증
+
+# --- 전이 의존성 (자동 설치됨) ---
+annotated-types==0.7.0
+anyio==4.13.0
+certifi==2026.2.25
+click==8.3.2
+distro==1.9.0
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.7.1
+idna==3.11
+jiter==0.14.0
+pydantic==2.13.2
+pydantic-core==2.46.2
+python-dotenv==1.2.2
+PyYAML==6.0.3
+sniffio==1.3.1
+starlette==0.38.6
+typing-extensions==4.15.0
+typing-inspection==0.4.2
+uvloop==0.22.1
+watchfiles==1.1.1
+websockets==16.0

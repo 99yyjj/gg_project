@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sqlite3 gg.db \"ALTER TABLE products ADD COLUMN is_ai_processed BOOLEAN NOT NULL DEFAULT 0;\")",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip3 show *)",
+      "Bash(pip3 install *)",
+      "Bash(uvicorn app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(curl -s http://localhost:8000/docs)",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(sqlite3 *)",
+      "Bash(curl -s -X POST \"http://localhost:8000/products/11/generate-ai\")"
+    ]
+  }
+}
