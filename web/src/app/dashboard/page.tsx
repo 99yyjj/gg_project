@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, Package, Plus, Sparkles } from "lucide-react";
+import { ExternalLink, Package, Plus } from "lucide-react";
 
 import { useMe, useProducts } from "@/lib/queries";
 
@@ -41,14 +41,6 @@ export default function DashboardHome() {
             등록된 상품 조회·수정·삭제
           </div>
         </Link>
-        <div className="bg-white rounded-2xl border border-slate-200 p-6">
-          <Sparkles className="w-6 h-6 text-emerald-600 mb-3" />
-          <div className="font-semibold">AI 도우미</div>
-          <div className="text-sm text-slate-800 mt-1">
-            등록·수정 화면에서 자동 활성화
-          </div>
-        </div>
-
         {/* 내 쇼핑몰 바로가기 */}
         {me?.username && (
           <Link

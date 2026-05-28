@@ -33,17 +33,18 @@ export default function EditProductPage() {
     setValues({
       product_name: product.product_name ?? "",
       price: product.price != null ? String(Math.trunc(product.price)) : "",
-      supply_price: "",
+      summary_description: product.summary_description ?? "",
       description: product.description ?? "",
-      category_no: product.category_no != null ? String(product.category_no) : "",
       display: (product.display === "F" ? "F" : "T") as "T" | "F",
-      selling: (product.selling === "F" ? "F" : "T") as "T" | "F",
       detail_image: product.detail_image ?? "",
       list_image: product.list_image ?? "",
       detail_image_file: null,
       list_image_file: null,
       delete_detail_image: false,
       delete_list_image: false,
+      // 수정 모드의 추가 이미지는 EditProductImagesPicker 가 즉시 API 로 관리한다.
+      additional_image_files: [],
+      tags: [],
     });
     setHydrated(true);
   }, [product, hydrated]);
@@ -57,11 +58,10 @@ export default function EditProductPage() {
       const res = await update.mutateAsync({
         product_name: values.product_name,
         price: values.price ? Number(values.price) : undefined,
-        supply_price: values.supply_price ? Number(values.supply_price) : undefined,
+        summary_description: values.summary_description || undefined,
         description: values.description || undefined,
-        category_no: values.category_no ? Number(values.category_no) : undefined,
         display: values.display,
-        selling: values.selling,
+        tags: values.tags.length ? values.tags : undefined,
         detail_image_file: values.detail_image_file,
         list_image_file: values.list_image_file,
         delete_detail_image: values.delete_detail_image,
@@ -107,6 +107,7 @@ export default function EditProductPage() {
         onSubmit={handleSubmit}
         username={me?.username}
         shopName={me?.shop_name ?? me?.username}
+        productNo={Number.isFinite(productNo) ? productNo : undefined}
       />
     </div>
   );

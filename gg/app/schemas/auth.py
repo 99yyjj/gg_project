@@ -28,6 +28,11 @@ class SignupRequest(BaseModel):
         return v
 
 
+class UserUpdateRequest(BaseModel):
+    """내 정보 수정 (현재는 쇼핑몰 이름만)."""
+    shop_name: Optional[str] = Field(None, max_length=100, description="쇼핑몰 이름")
+
+
 class LoginRequest(BaseModel):
     username_or_email: str = Field(..., description="아이디 또는 이메일")
     password: str = Field(..., description="비밀번호")
@@ -42,6 +47,10 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class ExchangeRequest(BaseModel):
+    code: str = Field(..., description="Cafe24 콜백이 발급한 일회용 교환 code")
 
 
 class UserResponse(BaseModel):

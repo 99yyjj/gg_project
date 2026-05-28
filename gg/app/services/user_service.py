@@ -65,6 +65,15 @@ class UserService:
         logger.info(f"신규 회원 가입: id={user.id}, username={user.username}")
         return user
 
+    async def update_profile(self, user: User, shop_name: Optional[str]) -> User:
+        """내 정보 수정 — 현재는 쇼핑몰 이름만 갱신한다."""
+        if shop_name is not None:
+            user.shop_name = shop_name
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
+        return user
+
     async def get_or_create_cafe24_user(self, mall_id: str) -> User:
         """Cafe24 OAuth 로그인용. mall_id로 기존 사용자 조회 후 없으면 자동 생성."""
         result = await self.db.execute(
@@ -97,6 +106,19 @@ class UserService:
         await self.db.commit()
         await self.db.refresh(user)
         logger.info(f"Cafe24 OAuth 신규 사용자 생성: mall_id={mall_id}, id={user.id}")
+        return user
+
+    async def set_cafe24_tokens(
+        self, user: User, access_token: str, refresh_token: str, mall_id: str
+    ) -> User:
+        """OAuth 콜백에서 받은 Cafe24 토큰을 해당 유저 row에 저장 (멀티테넌트)."""
+        user.cafe24_access_token = access_token
+        user.cafe24_refresh_token = refresh_token
+        if mall_id and not user.cafe24_mall_id:
+            user.cafe24_mall_id = mall_id
+        self.db.add(user)
+        await self.db.commit()
+        await self.db.refresh(user)
         return user
 
     async def authenticate(self, username_or_email: str, password: str) -> User:

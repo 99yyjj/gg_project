@@ -14,7 +14,13 @@ import { errorMessage } from "@/lib/api";
 import { tokenStore } from "@/lib/auth-storage";
 import { loginRequest } from "@/lib/queries";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+// Cafe24 OAuth는 카페24 콜백(공개 HTTPS 도메인)과 같은 출처에서 시작해야
+// state 쿠키가 콜백까지 전달된다. 일반 API base와 분리해 OAUTH 전용 base를 쓴다.
+// (미설정 시 API base로 폴백 → 콜백도 같은 도메인일 때만 정상 동작)
+const OAUTH_BASE =
+  process.env.NEXT_PUBLIC_OAUTH_BASE ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://127.0.0.1:8000";
 
 const Schema = z.object({
   username_or_email: z.string().min(1, "아이디 또는 이메일을 입력하세요."),
@@ -50,8 +56,8 @@ export default function LoginPage() {
   }
 
   function handleCafe24Login() {
-    // 백엔드가 Cafe24 OAuth URL로 직접 리다이렉트
-    window.location.href = `${BASE_URL}/auth/cafe24/login`;
+    // 백엔드가 Cafe24 OAuth URL로 직접 리다이렉트 (콜백과 같은 출처에서 시작)
+    window.location.href = `${OAUTH_BASE}/auth/cafe24/login`;
   }
 
   return (

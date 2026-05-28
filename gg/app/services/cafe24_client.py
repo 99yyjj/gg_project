@@ -13,8 +13,14 @@ Cafe24 Admin API와 실제로 HTTP 통신을 담당하는 클라이언트 모듈
       → 401 응답 수신
       → POST /oauth/token (refresh_token grant)
       → 새 access_token + refresh_token 수신
-      → .env 파일 업데이트 (서버 재시작 시에도 유효한 토큰 유지)
+      → on_token_refresh 콜백으로 호출자(유저 row)에 새 토큰 저장
       → 원래 요청 1회 재시도
+
+멀티테넌트:
+    이 클라이언트는 더 이상 모듈-레벨 싱글톤이 아니다. 요청마다 해당 유저의
+    토큰으로 인스턴스를 생성한다(app/deps.py의 make_cafe24_client). 토큰 갱신
+    결과는 on_token_refresh 콜백을 통해 그 유저 row에만 반영되므로, 사장님 A의
+    갱신이 사장님 B의 토큰을 덮어쓰지 않는다.
 
 이 모듈이 하지 않는 것:
     - DB 저장, 비즈니스 로직 판단 → product_service.py의 역할
@@ -23,29 +29,17 @@ Cafe24 Admin API와 실제로 HTTP 통신을 담당하는 클라이언트 모듈
 
 import base64
 import logging
-import re
-from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
 
-from app.core.config import settings  # mutable — 갱신 시 직접 속성 교체 가능
+from app.core.config import settings  # API 버전 등 앱 공통 설정
 
 logger = logging.getLogger(__name__)
 
-# .env 파일 경로 (프로젝트 루트 기준)
-# cafe24_client.py 위치: app/services/ → 루트까지 2단계 위
-ENV_FILE_PATH = Path(__file__).parent.parent.parent / ".env"
-
-# 모듈-레벨 싱글톤: 갱신된 토큰이 요청 간에 유지되도록 단일 인스턴스를 공유
-_singleton: "Cafe24Client | None" = None
-
-
-def get_cafe24_client() -> "Cafe24Client":
-    global _singleton
-    if _singleton is None:
-        _singleton = Cafe24Client()
-    return _singleton
+# 토큰 갱신 시 새 (access, refresh)를 호출자에게 알리는 콜백 타입
+TokenRefreshCallback = Callable[[str, str], Awaitable[None]]
 
 
 class Cafe24Client:
@@ -63,26 +57,48 @@ class Cafe24Client:
         https://{mall_id}.cafe24api.com/api/v2/oauth/token
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        mall_id: str,
+        access_token: str,
+        refresh_token: str,
+        on_token_refresh: TokenRefreshCallback | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
         """
         클라이언트 초기화.
 
+        Args:
+            mall_id: 이 클라이언트가 바라보는 Cafe24 몰 ID (유저별로 다름).
+            access_token / refresh_token: 해당 유저의 현재 토큰.
+            on_token_refresh: 토큰 갱신 성공 시 새 (access, refresh)를 받아
+                호출자(유저 row 등)에 저장하는 async 콜백. None이면 인스턴스
+                메모리에만 반영된다.
+            transport: 테스트에서 httpx.MockTransport 주입용. prod에서는 None.
+
         액세스 토큰을 인스턴스 변수로 관리한다.
-        토큰 갱신 시 이 변수만 업데이트하면 이후 모든 요청에 새 토큰이 적용된다.
+        토큰 갱신 시 이 변수만 교체하면 이후 모든 요청에 새 토큰이 적용된다.
         (헤더 딕셔너리에 고정하면 갱신이 불가능하므로 변수로 분리)
         """
-        self.base_url = f"https://{settings.CAFE24_MALL_ID}.cafe24api.com/api/v2/admin"
-        self.token_url = f"https://{settings.CAFE24_MALL_ID}.cafe24api.com/api/v2/oauth/token"
+        self.mall_id = mall_id
+        self.base_url = f"https://{mall_id}.cafe24api.com/api/v2/admin"
+        self.token_url = f"https://{mall_id}.cafe24api.com/api/v2/oauth/token"
 
         # 현재 유효한 액세스 토큰을 인스턴스 변수로 보관
         # → 토큰 갱신 시 self._access_token 만 교체하면 됨
-        self._access_token: str = settings.CAFE24_ACCESS_TOKEN
+        self._access_token: str = access_token
 
         # 현재 리프레시 토큰 (갱신 후 새 값으로 교체)
-        self._refresh_token: str = settings.CAFE24_REFRESH_TOKEN
+        self._refresh_token: str = refresh_token
 
         # API 버전은 변경되지 않으므로 고정
         self._api_version = settings.CAFE24_API_VERSION
+
+        # 토큰 갱신 결과를 호출자에게 전파하는 콜백 (유저 row 저장 등)
+        self._on_token_refresh = on_token_refresh
+
+        # 테스트용 transport 주입 (prod None)
+        self._transport = transport
 
     def _build_headers(self) -> dict[str, str]:
         """
@@ -114,7 +130,7 @@ class Cafe24Client:
 
         갱신 성공 시:
             1. self._access_token, self._refresh_token 을 새 값으로 교체
-            2. .env 파일의 토큰 값도 덮어씀 → 서버 재시작 후에도 유효한 토큰 유지
+            2. on_token_refresh 콜백으로 호출자(유저 row)에 새 토큰을 전파
 
         Raises:
             httpx.HTTPStatusError: 토큰 갱신 API 자체가 실패한 경우 (refresh token도 만료됨)
@@ -126,7 +142,7 @@ class Cafe24Client:
         credentials = f"{settings.CAFE24_CLIENT_ID}:{settings.CAFE24_CLIENT_SECRET}"
         encoded = base64.b64encode(credentials.encode()).decode()
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(transport=self._transport) as client:
             response = await client.post(
                 url=self.token_url,
                 headers={
@@ -154,68 +170,11 @@ class Cafe24Client:
         self._access_token = new_access_token
         self._refresh_token = new_refresh_token
 
-        # 메모리의 settings도 즉시 갱신 → 만약 싱글톤이 재생성될 경우에도 최신 토큰 사용
-        settings.CAFE24_ACCESS_TOKEN = new_access_token
-        settings.CAFE24_REFRESH_TOKEN = new_refresh_token
-
         logger.info("액세스 토큰 갱신 성공")
 
-        # .env 파일에 새 토큰을 저장 → 서버 재시작 후에도 유효한 토큰 유지
-        self._update_env_file(new_access_token, new_refresh_token)
-
-    def _update_env_file(self, new_access_token: str, new_refresh_token: str) -> None:
-        """
-        .env 파일의 토큰 값을 새 값으로 덮어쓰는 내부 함수.
-
-        왜 .env를 직접 수정하는가?
-            서버가 재시작되면 settings 객체가 다시 .env를 읽는다.
-            갱신된 토큰을 .env에 저장하지 않으면 재시작 후 만료된 토큰이 다시 로드된다.
-
-        동작 방식:
-            정규식으로 CAFE24_ACCESS_TOKEN=... 줄을 찾아 새 값으로 교체한다.
-            파일 전체를 읽어 치환 후 다시 쓰는 단순한 방식이므로 성능보다 안정성 우선.
-
-        Args:
-            new_access_token: 새로 발급받은 액세스 토큰
-            new_refresh_token: 새로 발급받은 리프레시 토큰
-        """
-        if not ENV_FILE_PATH.exists():
-            logger.warning(f".env 파일을 찾을 수 없어 토큰 저장을 건너뜀: {ENV_FILE_PATH}")
-            return
-
-        try:
-            content = ENV_FILE_PATH.read_text(encoding="utf-8")
-
-            # 정규식으로 해당 줄만 교체
-            # re.MULTILINE: ^ $ 가 각 줄의 시작/끝에 매칭되도록 설정
-            content = re.sub(
-                r"^CAFE24_ACCESS_TOKEN=.*$",
-                f"CAFE24_ACCESS_TOKEN={new_access_token}",
-                content,
-                flags=re.MULTILINE,
-            )
-            content = re.sub(
-                r"^CAFE24_REFRESH_TOKEN=.*$",
-                f"CAFE24_REFRESH_TOKEN={new_refresh_token}",
-                content,
-                flags=re.MULTILINE,
-            )
-
-            ENV_FILE_PATH.write_text(content, encoding="utf-8")
-            logger.info(".env 파일 토큰 업데이트 완료")
-
-        except Exception as e:
-            # .env 업데이트 실패는 치명적이지 않음 (인메모리 토큰은 이미 갱신됨)
-            # 단, 서버 재시작 시 다시 만료된 토큰이 로드될 수 있다는 경고만 남김
-            logger.warning(f".env 파일 업데이트 실패 (다음 재시작 시 토큰 재갱신 필요): {e}")
-
-    def update_tokens(self, access_token: str, refresh_token: str) -> None:
-        """OAuth 콜백 등 외부에서 새 토큰을 주입할 때 사용."""
-        self._access_token = access_token
-        self._refresh_token = refresh_token
-        settings.CAFE24_ACCESS_TOKEN = access_token
-        settings.CAFE24_REFRESH_TOKEN = refresh_token
-        self._update_env_file(access_token, refresh_token)
+        # 호출자(유저 row 등)에 새 토큰 전파 → 이 유저의 토큰만 갱신된다.
+        if self._on_token_refresh is not None:
+            await self._on_token_refresh(new_access_token, new_refresh_token)
 
     async def _request_with_auto_refresh(
         self,
@@ -243,7 +202,7 @@ class Cafe24Client:
         Raises:
             httpx.HTTPStatusError: 토큰 갱신 후 재시도에도 실패한 경우
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(transport=self._transport) as client:
             # 첫 번째 요청 시도
             response = await client.request(
                 method=method,
@@ -283,7 +242,7 @@ class Cafe24Client:
         response = await self._request_with_auto_refresh(
             method="get",
             url=f"{self.base_url}/products/{product_no}",
-            params={"mall_id": settings.CAFE24_MALL_ID},
+            params={"mall_id": self.mall_id},
             timeout=15.0,
         )
         return response.json().get("product", {})
@@ -297,7 +256,7 @@ class Cafe24Client:
             url=f"{self.base_url}/products",
             params={
                 "product_no": ",".join(str(n) for n in product_nos),
-                "mall_id": settings.CAFE24_MALL_ID,
+                "mall_id": self.mall_id,
                 "limit": len(product_nos),
             },
             timeout=30.0,
@@ -325,7 +284,7 @@ class Cafe24Client:
         params = {
             "limit": limit,
             "offset": offset,
-            "mall_id": settings.CAFE24_MALL_ID,
+            "mall_id": self.mall_id,
             "display": "T",  # 진열 중인 상품만 가져옴
         }
 
@@ -390,7 +349,7 @@ class Cafe24Client:
             method="get",
             url=f"{self.base_url}/categories",
             params={
-                "mall_id": settings.CAFE24_MALL_ID,
+                "mall_id": self.mall_id,
                 "limit": limit,
                 "offset": offset,
             },
@@ -461,6 +420,44 @@ class Cafe24Client:
         logger.info(f"Cafe24 상품 업데이트 완료: product_no={product_no}")
         return updated_product
 
+    # ─────────── 상품 검색 키워드(태그) ───────────
+    # Cafe24 Products tags 서브리소스: GET/POST /products/{product_no}/tags
+    # (태그는 {tag_no, tag_name} 객체로 오가며, 생성 시 tag_name 문자열 배열을 보낸다)
+
+    @staticmethod
+    def _extract_tag_names(raw_tags: Any) -> list[str]:
+        out: list[str] = []
+        for t in raw_tags or []:
+            if isinstance(t, dict) and t.get("tag_name"):
+                out.append(str(t["tag_name"]))
+            elif isinstance(t, str) and t.strip():
+                out.append(t.strip())
+        return out
+
+    async def get_product_tags(self, product_no: int) -> list[str]:
+        """상품의 검색 키워드(태그) 목록 조회."""
+        response = await self._request_with_auto_refresh(
+            method="get",
+            url=f"{self.base_url}/products/{product_no}/tags",
+            params={"mall_id": self.mall_id},
+            timeout=15.0,
+        )
+        return self._extract_tag_names(response.json().get("tags"))
+
+    async def set_product_tags(self, product_no: int, tags: list[str]) -> list[str]:
+        """상품에 검색 키워드(태그)를 등록한다. tag_name 문자열 배열을 전송."""
+        clean = [t.strip() for t in (tags or []) if t and t.strip()]
+        if not clean:
+            return []
+        request_body = {"request": {"shop_no": 1, "tags": clean}}
+        response = await self._request_with_auto_refresh(
+            method="post",
+            url=f"{self.base_url}/products/{product_no}/tags",
+            json=request_body,
+            timeout=20.0,
+        )
+        return self._extract_tag_names(response.json().get("tags")) or clean
+
     async def delete_product(self, product_no: int) -> bool:
         """
         Cafe24 DELETE /products/{product_no} — 상품 삭제.
@@ -475,7 +472,7 @@ class Cafe24Client:
         await self._request_with_auto_refresh(
             method="delete",
             url=f"{self.base_url}/products/{product_no}",
-            params={"mall_id": settings.CAFE24_MALL_ID},
+            params={"mall_id": self.mall_id},
             timeout=15.0,
         )
 
@@ -520,7 +517,7 @@ class Cafe24Client:
             or image_block.get("path")
         )
         if path and not path.startswith("http"):
-            path = f"https://{settings.CAFE24_MALL_ID}.cafe24.com{path}"
+            path = f"https://{self.mall_id}.cafe24.com{path}"
 
         if not path:
             raise ValueError(f"Cafe24 이미지 업로드 응답에서 path를 찾을 수 없음: {data}")
@@ -555,9 +552,13 @@ class Cafe24Client:
         if detail_bytes is None and list_bytes is None:
             return {}
 
+        # Cafe24 image_upload_type 유효값은 "A" / "B" 뿐 ("C"는 422 invalid).
+        #   A: 대표 이미지 한 장으로 목록/축소 등 나머지 사이즈를 Cafe24가 자동 생성
+        #   B: 보낸 슬롯(대표/목록)을 직접 등록
+        # 목록 이미지를 따로 지정했을 때만 B, 그 외엔 A(자동 생성)로 둔다.
         body: dict[str, Any] = {
             "shop_no": 1,
-            "image_upload_type": "C",
+            "image_upload_type": "B" if list_bytes is not None else "A",
         }
         if detail_bytes is not None:
             body["detail_image"] = base64.b64encode(detail_bytes).decode("utf-8")
@@ -582,7 +583,109 @@ class Cafe24Client:
         for key in ("detail_image", "list_image"):
             url = image_block.get(key)
             if url and not url.startswith("http"):
-                image_block[key] = f"https://{settings.CAFE24_MALL_ID}.cafe24.com{url}"
+                image_block[key] = f"https://{self.mall_id}.cafe24.com{url}"
 
         logger.info(f"Cafe24 상품 이미지 부착 완료: product_no={product_no}")
         return image_block
+
+    # =========================================================
+    # 추가(상세) 이미지 — Cafe24 /products/{product_no}/additionalimages
+    #
+    # 주의: Cafe24 추가이미지 API의 요청/응답 키와 번호 체계는 변동될 수 있어
+    #       파싱은 가능한 한 관대하게 처리한다. (image_url 추출은 _extract_image_url)
+    # =========================================================
+
+    def _abs_url(self, path: str | None) -> str | None:
+        if not path:
+            return None
+        if path.startswith("http"):
+            return path
+        return f"https://{self.mall_id}.cafe24.com{path}"
+
+    def _extract_image_url(self, item: Any) -> str | None:
+        """추가이미지 응답 요소(dict/str)에서 표시용 URL을 최대한 뽑아낸다."""
+        if isinstance(item, str):
+            return self._abs_url(item)
+        if isinstance(item, dict):
+            for key in ("big", "medium", "small", "image_url", "path", "image"):
+                url = item.get(key)
+                if url:
+                    return self._abs_url(url)
+        return None
+
+    async def get_additional_images(self, product_no: int) -> list[str]:
+        """추가 이미지 URL 목록.
+
+        Cafe24엔 GET /products/{no}/additionalimages 가 없다(404 "No API found").
+        추가 이미지는 상품 리소스의 필드이므로 GET /products/{no} 의
+        additional_image 에서 읽는다.
+        """
+        product = await self.get_product(product_no)
+        items = product.get("additional_image") or []
+        urls = [self._extract_image_url(it) for it in items]
+        return [u for u in urls if u]
+
+    async def create_additional_images(
+        self, product_no: int, images: list[bytes]
+    ) -> list[str]:
+        """POST /products/{product_no}/additionalimages — 추가 이미지 다중 등록."""
+        if not images:
+            return []
+        # Cafe24는 additional_image 를 base64 문자열의 "배열"로 받는다.
+        # (객체 {"image": ...} 로 감싸면 422: "Only Base64 encoding format is supported")
+        body = {
+            "shop_no": 1,
+            "additional_image": [
+                base64.b64encode(b).decode("utf-8") for b in images
+            ],
+        }
+        logger.info(
+            f"Cafe24 추가이미지 등록 요청: product_no={product_no}, count={len(images)}"
+        )
+        response = await self._request_with_auto_refresh(
+            method="post",
+            url=f"{self.base_url}/products/{product_no}/additionalimages",
+            json={"request": body},
+            timeout=60.0,
+        )
+        data = response.json()
+        block = data.get("additionalimage") or data.get("additionalimages") or {}
+        items = block.get("additional_image") if isinstance(block, dict) else block
+        urls = [self._extract_image_url(it) for it in (items or [])]
+        return [u for u in urls if u]
+
+    async def update_additional_image(
+        self, product_no: int, additional_image_no: int, image_bytes: bytes
+    ) -> str | None:
+        """PUT /products/{product_no}/additionalimages/{no} — 추가 이미지 한 장 교체."""
+        body = {
+            "shop_no": 1,
+            "image": base64.b64encode(image_bytes).decode("utf-8"),
+        }
+        logger.info(
+            f"Cafe24 추가이미지 수정 요청: product_no={product_no}, no={additional_image_no}"
+        )
+        response = await self._request_with_auto_refresh(
+            method="put",
+            url=f"{self.base_url}/products/{product_no}/additionalimages/{additional_image_no}",
+            json={"request": body},
+            timeout=60.0,
+        )
+        data = response.json()
+        block = data.get("additionalimage") or {}
+        return self._extract_image_url(block)
+
+    async def delete_additional_image(
+        self, product_no: int, additional_image_no: int
+    ) -> bool:
+        """DELETE /products/{product_no}/additionalimages/{no} — 추가 이미지 삭제."""
+        logger.info(
+            f"Cafe24 추가이미지 삭제 요청: product_no={product_no}, no={additional_image_no}"
+        )
+        await self._request_with_auto_refresh(
+            method="delete",
+            url=f"{self.base_url}/products/{product_no}/additionalimages/{additional_image_no}",
+            params={"mall_id": self.mall_id},
+            timeout=15.0,
+        )
+        return True

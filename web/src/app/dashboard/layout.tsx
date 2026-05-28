@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { LogOut, Package, Palette, Settings, Sparkles } from "lucide-react";
+import { BarChart3, LogOut, Package, Palette, Settings, Sparkles, Truck } from "lucide-react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -80,6 +80,18 @@ export default function DashboardLayout({
             label="상품"
             icon={<Package className="w-4 h-4" />}
             active={pathname.startsWith("/dashboard/products")}
+          />
+          <NavLink
+            href="/dashboard/orders"
+            label="주문배송관리"
+            icon={<Truck className="w-4 h-4" />}
+            active={pathname.startsWith("/dashboard/orders")}
+          />
+          <NavLink
+            href="/dashboard/sales"
+            label="판매성과"
+            icon={<BarChart3 className="w-4 h-4" />}
+            active={pathname.startsWith("/dashboard/sales")}
           />
           <NavLink
             href="/dashboard/settings"

@@ -10,18 +10,27 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.deps import get_db
+from app.deps import get_db, get_session_maker, make_cafe24_client
+from app.models.review import Review
 from app.models.user_product import UserProduct
 from app.schemas.category import CategoryListResponse, CategoryResponse
 from app.schemas.product import ProductListResponse, ProductSummary
+from app.schemas.review import (
+    ReviewCreate,
+    ReviewPublicCreateResponse,
+    ReviewPublicListResponse,
+    ReviewPublicOut,
+    ReviewPublicUpdate,
+)
 from app.schemas.shop_template import ShopTemplate
-from app.services.cafe24_client import get_cafe24_client
+from app.services.ai_service import get_ai_service
 from app.services.product_service import _to_summary
+from app.services.review_service import ReviewService, analyze_and_save
 from app.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
@@ -106,7 +115,7 @@ async def list_shop_products(
         return ShopProductListResponse(shop=shop, items=[], limit=limit, offset=offset)
 
     try:
-        cafe24 = get_cafe24_client()
+        cafe24 = make_cafe24_client(user, db)
         raw_list = await cafe24.get_products_by_nos(nos)
     except httpx.HTTPStatusError:
         return ShopProductListResponse(shop=shop, items=[], limit=limit, offset=offset)
@@ -148,7 +157,7 @@ async def get_shop_product(
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
 
     try:
-        cafe24 = get_cafe24_client()
+        cafe24 = make_cafe24_client(user, db)
         raw = await cafe24.get_product(product_no)
     except httpx.HTTPStatusError:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
@@ -156,7 +165,151 @@ async def get_shop_product(
     if not raw:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
 
+    # 미진열(display != "T") 상품은 손님 화면에 노출하지 않는다.
+    if raw.get("display") != "T":
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
     return _to_summary(raw)
+
+
+# ─────────────── 공개 리뷰 (손님용) ───────────────
+
+
+async def _verify_owned_product(user_id: int, product_no: int, db: AsyncSession) -> None:
+    """해당 username 의 사장님이 등록한 상품이 맞는지 확인."""
+    result = await db.execute(
+        select(UserProduct).where(
+            UserProduct.user_id == user_id,
+            UserProduct.product_no == product_no,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
+
+@router.get(
+    "/{username}/products/{product_no}/reviews",
+    response_model=ReviewPublicListResponse,
+    summary="상품 리뷰 목록 (공개)",
+)
+async def list_shop_reviews(
+    username: str,
+    product_no: int,
+    db: AsyncSession = Depends(get_db),
+) -> ReviewPublicListResponse:
+    user = await _get_user_or_404(username, db)
+    await _verify_owned_product(user.id, product_no, db)
+
+    result = await db.execute(
+        select(Review)
+        .where(Review.user_id == user.id, Review.product_no == product_no)
+        .order_by(Review.id.desc())
+    )
+    rows = list(result.scalars().all())
+
+    avg_q = await db.execute(
+        select(func.avg(Review.rating)).where(
+            Review.user_id == user.id, Review.product_no == product_no
+        )
+    )
+    avg_val = avg_q.scalar()
+    avg_rating = round(float(avg_val), 1) if avg_val is not None else None
+
+    return ReviewPublicListResponse(
+        items=[ReviewPublicOut.model_validate(r) for r in rows],
+        total=len(rows),
+        avg_rating=avg_rating,
+    )
+
+
+@router.post(
+    "/{username}/products/{product_no}/reviews",
+    response_model=ReviewPublicCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="리뷰 작성 (공개, 익명)",
+)
+async def create_shop_review(
+    username: str,
+    product_no: int,
+    payload: ReviewCreate,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    session_maker: async_sessionmaker[AsyncSession] = Depends(get_session_maker),
+) -> ReviewPublicCreateResponse:
+    user = await _get_user_or_404(username, db)
+    await _verify_owned_product(user.id, product_no, db)
+
+    ai = get_ai_service()
+    service = ReviewService(db, ai)
+    token = ReviewService.generate_edit_token()
+    row = await service.create(user.id, product_no, payload, edit_token=token)
+
+    background.add_task(
+        analyze_and_save,
+        session_maker,
+        ai,
+        row.id,
+        row.content,
+        row.rating,
+    )
+
+    return ReviewPublicCreateResponse(
+        review=ReviewPublicOut.model_validate(row),
+        edit_token=token,
+    )
+
+
+@router.patch(
+    "/{username}/reviews/{review_id}",
+    response_model=ReviewPublicOut,
+    summary="본인 리뷰 수정 (X-Edit-Token 헤더 필요)",
+)
+async def update_shop_review(
+    username: str,
+    review_id: int,
+    payload: ReviewPublicUpdate,
+    background: BackgroundTasks,
+    x_edit_token: str | None = Header(default=None, alias="X-Edit-Token"),
+    db: AsyncSession = Depends(get_db),
+    session_maker: async_sessionmaker[AsyncSession] = Depends(get_session_maker),
+) -> ReviewPublicOut:
+    user = await _get_user_or_404(username, db)
+
+    if not x_edit_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="수정 토큰이 필요합니다.",
+        )
+
+    ai = get_ai_service()
+    service = ReviewService(db, ai)
+    try:
+        row = await service.get_by_id_and_token(review_id, x_edit_token)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    # 토큰이 일치해도, 다른 사장님 가게의 리뷰 ID 가 섞여 들어오는 시도는 막는다.
+    if row.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="리뷰를 찾을 수 없습니다.")
+
+    row, needs_reanalysis = await service.apply_customer_edit(
+        row,
+        author_name=payload.author_name,
+        rating=payload.rating,
+        content=payload.content,
+    )
+
+    if needs_reanalysis:
+        background.add_task(
+            analyze_and_save,
+            session_maker,
+            ai,
+            row.id,
+            row.content,
+            row.rating,
+        )
+
+    return ReviewPublicOut.model_validate(row)
 
 
 @router.get(
@@ -169,9 +322,9 @@ async def list_shop_categories(
     db: AsyncSession = Depends(get_db),
 ) -> CategoryListResponse:
     """category-grid 블록 렌더용. 카테고리는 몰 전체 공용이라 사장님 확인만 하고 위임한다."""
-    await _get_user_or_404(username, db)
+    user = await _get_user_or_404(username, db)
     try:
-        raw = await get_cafe24_client().get_categories()
+        raw = await make_cafe24_client(user, db).get_categories()
     except httpx.HTTPStatusError:
         # 카테고리 조회 실패는 손님화면을 막을 이유가 아니다 → 빈 목록으로 폴백
         return CategoryListResponse(items=[], total=0)

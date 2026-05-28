@@ -20,3 +20,14 @@ class AIMarketingCopyRequest(BaseModel):
 class AIMarketingCopyResponse(BaseModel):
     description: str = Field(..., description="AI가 생성한 마케팅 상세 문구")
     tags: list[str] = Field(default_factory=list, description="AI가 추천한 분류 태그 목록")
+
+
+class AIImageAnalysisResponse(BaseModel):
+    """상품 사진 1장을 Gemini로 분석한 결과 (등록 폼 자동 채우기용)."""
+
+    file_id: str = Field(..., description="이 분석 건의 짧은 식별자")
+    product_name: str = Field(..., description="쇼핑몰 등록용 상품명")
+    keywords: list[str] = Field(default_factory=list, description="핵심 키워드 (보통 5개)")
+    summary: str = Field("", description="상품 주요 특징 한 줄 요약 (간략 설명용)")
+    description: str = Field("", description="마케팅 상세 문구")
+    analysis_text: str = Field("", description="사람이 읽기 좋은 분석 결과 전문 (참고용)")

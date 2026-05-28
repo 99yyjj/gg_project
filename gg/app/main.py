@@ -9,10 +9,12 @@ GG FastAPI 앱 엔트리포인트.
 
 import logging
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import ai, auth, categories, health, products, shop, shop_template
+from app.core.errors import httpx_status_error_handler, permission_error_handler
+from app.routers import ai, auth, categories, health, products, reviews, shop, shop_template
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +44,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 전역 예외 핸들러 — Cafe24 API 오류/권한 오류를 일관된 HTTP 응답으로 변환
+app.add_exception_handler(httpx.HTTPStatusError, httpx_status_error_handler)
+app.add_exception_handler(PermissionError, permission_error_handler)
+
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(products.router)
@@ -49,3 +55,4 @@ app.include_router(ai.router)
 app.include_router(categories.router)
 app.include_router(shop.router)
 app.include_router(shop_template.router)
+app.include_router(reviews.router)

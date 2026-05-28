@@ -21,7 +21,32 @@ export type ShopTheme = {
   text_color?: string;
   font_family?: string;
   tone?: string;
+  /** @deprecated 구버전 헤더 정렬. 지금은 header_x/header_y 자유 배치를 쓴다. */
+  header_align?: "left" | "center";
+  /** 쇼핑몰 이름 가로 위치: 헤더 영역 폭 대비 왼쪽 모서리 % (0 = 좌측) */
+  header_x?: number;
+  /** 쇼핑몰 이름 세로 위치: 헤더 영역 높이 대비 중심 % (50 = 세로 중앙) */
+  header_y?: number;
+  /** 쇼핑몰 이름 글자 크기 (px) */
+  header_font_size?: number;
 };
+
+/** 헤더(쇼핑몰 이름) 영역 높이(px). 편집기·미리보기·손님화면이 같아야 위치가 일치한다. */
+export const HEADER_BAND_HEIGHT = 96;
+export const DEFAULT_HEADER_FONT_SIZE = 20;
+export const HEADER_FONT_MIN = 12;
+export const HEADER_FONT_MAX = 56;
+
+export type ResolvedHeader = { x: number; y: number; fontSize: number };
+
+/** theme에서 헤더 이름 위치/크기를 안전하게 해석한다 (구버전 header_align 호환). */
+export function resolveHeader(theme: ShopTheme): ResolvedHeader {
+  return {
+    x: theme.header_x ?? (theme.header_align === "center" ? 38 : 0),
+    y: theme.header_y ?? 50,
+    fontSize: theme.header_font_size ?? DEFAULT_HEADER_FONT_SIZE,
+  };
+}
 
 export type ShopTemplate = {
   preset_id: string | null;
@@ -120,6 +145,55 @@ export const PRESETS: Preset[] = [
       blk("featured-products", { title: "이번 주 PICK" }),
       blk("banner", { title: "친구 초대 EVENT", subtitle: "초대할수록 적립" }),
       blk("newsletter", { title: "친구가 되어주세요" }),
+    ],
+  },
+  {
+    id: "natural",
+    name: "Natural",
+    tagline: "자연스러운 베이지 톤, 편안한 무드",
+    swatch: { bg: "#faf8f3", primary: "#5b4636", accent: "#a3b18a" },
+    theme: {
+      primary_color: "#5b4636",
+      accent_color: "#a3b18a",
+      background_color: "#faf8f3",
+      text_color: "#3f352c",
+      font_family: "Pretendard, system-ui, sans-serif",
+      tone: "natural",
+    },
+    blocks: [
+      blk("hero", {
+        headline: "자연이 건넨, 오늘의 선택.",
+        subcopy: "편안하고 단정한 일상을 위한 큐레이션.",
+        cta: "둘러보기",
+      }),
+      blk("featured-products", { title: "이달의 추천" }),
+      blk("category-grid", { title: "카테고리" }),
+      blk("testimonial", { title: "고객의 한마디" }),
+      blk("newsletter", { title: "소식 받아보기" }),
+    ],
+  },
+  {
+    id: "luxury",
+    name: "Luxury",
+    tagline: "딥 톤과 골드 포인트의 고급스러운 무드",
+    swatch: { bg: "#0f0f10", primary: "#caa45d", accent: "#caa45d" },
+    theme: {
+      primary_color: "#caa45d",
+      accent_color: "#caa45d",
+      background_color: "#0f0f10",
+      text_color: "#ece8e1",
+      font_family: "'Spoqa Han Sans Neo', sans-serif",
+      tone: "luxury",
+    },
+    blocks: [
+      blk("hero", {
+        headline: "당신의 격을 높이는 컬렉션.",
+        subcopy: "엄선한 프리미엄 셀렉션을 만나보세요.",
+        cta: "컬렉션 보기",
+      }),
+      blk("banner", { title: "EXCLUSIVE", subtitle: "회원 전용 특별가" }),
+      blk("featured-products", { title: "SIGNATURE" }),
+      blk("newsletter", { title: "프라이빗 소식 구독" }),
     ],
   },
 ];

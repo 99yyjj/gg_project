@@ -14,8 +14,14 @@ import {
   Tag,
 } from "lucide-react";
 
+import CartButton from "@/components/shop/cart-button";
 import type { ShopCategory, ShopProduct } from "@/lib/shop-api";
-import type { ShopBlock, ShopTheme } from "@/lib/shop-builder";
+import {
+  HEADER_BAND_HEIGHT,
+  resolveHeader,
+  type ShopBlock,
+  type ShopTheme,
+} from "@/lib/shop-builder";
 
 type Props = {
   shopName: string;
@@ -143,6 +149,7 @@ export default function Storefront({
   const primary = theme.primary_color ?? "#0f172a";
   const accent = theme.accent_color ?? "#10b981";
   const font = theme.font_family ?? undefined;
+  const header = resolveHeader(theme);
 
   const hasMore = products.length >= pageSize;
   const hasFeaturedBlock = blocks.some((b) => b.type === "featured-products");
@@ -258,13 +265,22 @@ export default function Storefront({
 
       case "testimonial": {
         const title = str(block.props.title, "고객 후기");
+        const raw = block.props.items;
+        const items =
+          Array.isArray(raw) && raw.length
+            ? (raw as { quote: string; author: string }[])
+            : [
+                { quote: "정말 마음에 들어요. 다시 구매하고 싶어요!", author: "익명 고객 1" },
+                { quote: "배송도 빠르고 품질이 좋아요.", author: "익명 고객 2" },
+                { quote: "주변에도 추천하고 있어요.", author: "익명 고객 3" },
+              ];
         return (
           <section key={block.id} className="px-6 sm:px-10 py-12">
             <h2 className="text-xl font-bold mb-6" style={{ color: primary }}>
               {title}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[0, 1, 2].map((i) => (
+              {items.map((it, i) => (
                 <div
                   key={i}
                   className="rounded-2xl p-5 bg-white border border-slate-200"
@@ -275,11 +291,9 @@ export default function Storefront({
                     ))}
                   </div>
                   <p className="text-sm" style={{ color: text }}>
-                    “정말 마음에 들어요. 다시 구매하고 싶어요!”
+                    “{it.quote}”
                   </p>
-                  <div className="text-xs mt-3 text-slate-400">
-                    — 익명 고객 {i + 1}
-                  </div>
+                  <div className="text-xs mt-3 text-slate-400">— {it.author}</div>
                 </div>
               ))}
             </div>
@@ -328,11 +342,26 @@ export default function Storefront({
         className="sticky top-0 z-10 border-b"
         style={{ background: bg, borderColor: "rgba(0,0,0,0.08)" }}
       >
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold" style={{ color: primary }}>
-            {shopName}
-          </h1>
-          <ShoppingBag className="w-6 h-6" style={{ color: accent }} />
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="relative" style={{ height: HEADER_BAND_HEIGHT }}>
+            <h1
+              className="absolute font-bold whitespace-nowrap leading-none"
+              style={{
+                left: `${header.x}%`,
+                top: `${header.y}%`,
+                transform: "translateY(-50%)",
+                fontSize: `${header.fontSize}px`,
+                color: primary,
+              }}
+            >
+              {shopName}
+            </h1>
+            <CartButton
+              username={username}
+              color={accent}
+              className="absolute right-0 top-1/2 -translate-y-1/2"
+            />
+          </div>
         </div>
       </header>
 

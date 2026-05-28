@@ -9,7 +9,11 @@ import ProductForm, {
 } from "@/components/product-form";
 import { useToast } from "@/components/toast";
 import { errorMessage } from "@/lib/api";
-import { useCreateProduct, useMe } from "@/lib/queries";
+import {
+  addAdditionalImagesRequest,
+  useCreateProduct,
+  useMe,
+} from "@/lib/queries";
 
 export default function NewProductPage() {
   const [values, setValues] = useState<ProductFormValues>(emptyFormValues());
@@ -35,14 +39,31 @@ export default function NewProductPage() {
       const res = await create.mutateAsync({
         product_name: values.product_name,
         price: Number(values.price),
-        supply_price: values.supply_price ? Number(values.supply_price) : undefined,
+        summary_description: values.summary_description || undefined,
         description: values.description,
-        category_no: values.category_no ? Number(values.category_no) : undefined,
         display: values.display,
-        selling: values.selling,
+        tags: values.tags,
         detail_image_file: values.detail_image_file,
         list_image_file: values.list_image_file,
       });
+      // 상품이 생긴 뒤에야 product_no 로 상세 이미지를 올릴 수 있다.
+      // 실패해도 상품 등록 자체는 성공이므로 경고만 띄우고 진행한다.
+      if (values.additional_image_files.length) {
+        try {
+          await addAdditionalImagesRequest(
+            res.product.product_no,
+            values.additional_image_files
+          );
+        } catch (e) {
+          toast.push(
+            errorMessage(
+              e,
+              "상품은 등록됐지만 상세 이미지 업로드에 실패했습니다. 수정 화면에서 다시 추가해 주세요."
+            ),
+            "err"
+          );
+        }
+      }
       toast.push(res.message);
       res.warnings?.forEach((w) => toast.push(w, "err"));
       router.replace(`/dashboard/products/${res.product.product_no}`);

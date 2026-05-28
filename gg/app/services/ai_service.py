@@ -43,6 +43,25 @@ class ShopThemeResult:
     recommended_blocks: list[str] = field(default_factory=list)
 
 
+@dataclass
+class ImageAnalysisResult:
+    """상품 사진 → AI 분석 결과 (상품명/키워드/특징 요약/상세 문구)."""
+
+    product_name: str
+    keywords: list[str]
+    summary: str
+    description: str
+
+
+@dataclass
+class ReviewAnalysisResult:
+    """리뷰 본문/별점 → AI 감정·요약·답글 초안."""
+
+    sentiment: str   # 'pos' | 'neu' | 'neg'
+    summary: str
+    draft_reply: str
+
+
 class AIService:
     """
     상품 콘텐츠 자동 생성 서비스 클래스.
@@ -190,6 +209,125 @@ class AIService:
   "ai_description": "마케팅 상세페이지 텍스트",
   "ai_tags": ["태그1", "태그2", "태그3"]
 }}"""
+
+    # ─────────────────────────────────────────────────────
+    # 상품 사진 분석 (Gemini 멀티모달)
+    # ─────────────────────────────────────────────────────
+
+    async def analyze_product_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str,
+        custom_prompt: str | None = None,
+    ) -> ImageAnalysisResult:
+        """상품 사진 1장을 보고 상품명/키워드/특징 요약/상세 문구를 생성한다."""
+        if self.use_mock:
+            logger.info("[MOCK] 상품 이미지 분석")
+            return self._mock_analyze_image()
+
+        logger.info("[REAL] Gemini 상품 이미지 분석")
+        return await self._real_analyze_image(image_bytes, mime_type, custom_prompt)
+
+    def _mock_analyze_image(self) -> ImageAnalysisResult:
+        """키 없이도 동작하는 가짜 분석 결과 (UI 흐름 확인용)."""
+        keyword_pool = [
+            ["스피커", "크리에이티브", "데스크탑", "RGB", "미니"],
+            ["무선", "이어폰", "노이즈캔슬링", "블루투스", "휴대용"],
+            ["텀블러", "보온", "스테인리스", "대용량", "캠핑"],
+            ["가습기", "무드등", "초음파", "저소음", "USB충전"],
+        ]
+        keywords = random.choice(keyword_pool)
+        product_name = " ".join(keywords[:3]) + f" {keywords[-1]}"
+        summary = (
+            f"{keywords[1]}의 감각적인 디자인이 돋보이는 {keywords[0]}로, "
+            f"{keywords[2]} 환경에 최적화된 {keywords[-1]} 사이즈 제품입니다."
+        )
+        description = (
+            f"✨ {product_name}\n\n"
+            f"세련된 디자인과 실용성을 모두 갖춘 제품입니다. "
+            f"{keywords[2]} 환경에 잘 어울리며, 간편한 사용성과 안정적인 품질로 "
+            f"일상에서 만족스러운 경험을 제공합니다.\n\n"
+            f"#{' #'.join(keywords)}"
+        )
+        return ImageAnalysisResult(
+            product_name=product_name,
+            keywords=keywords,
+            summary=summary,
+            description=description,
+        )
+
+    async def _real_analyze_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str,
+        custom_prompt: str | None,
+    ) -> ImageAnalysisResult:
+        """Gemini 멀티모달로 사진을 분석한다."""
+        from google.genai import types
+
+        prompt = self._build_image_prompt(custom_prompt)
+        response = await self._genai_client.aio.models.generate_content(
+            model=self.model,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                prompt,
+            ],
+            config=types.GenerateContentConfig(max_output_tokens=self.max_tokens),
+        )
+
+        raw = response.text
+        if not raw:
+            raise ValueError("Gemini 응답이 비어있습니다. (안전 필터 차단 가능성)")
+
+        logger.debug(f"Gemini 이미지 분석 원본: {raw[:200]}...")
+        try:
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            if start == -1 or end == 0:
+                raise ValueError("응답에서 JSON을 찾을 수 없음")
+            parsed = json.loads(raw[start:end])
+            keywords = [str(k) for k in (parsed.get("keywords") or [])][:5]
+            return ImageAnalysisResult(
+                product_name=str(parsed.get("product_name") or "").strip() or "분석된 상품",
+                keywords=keywords,
+                summary=str(parsed.get("summary") or "").strip(),
+                description=str(parsed.get("description") or "").strip(),
+            )
+        except (ValueError, KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"이미지 분석 응답 파싱 실패: {e} → mock 폴백")
+            return self._mock_analyze_image()
+
+    def _build_image_prompt(self, custom_prompt: str | None) -> str:
+        custom_str = f"\n- 추가 지시사항: {custom_prompt}" if custom_prompt else ""
+        return f"""당신은 한국 쇼핑몰의 전문 MD입니다.
+첨부된 상품 사진 한 장을 보고, 쇼핑몰 등록에 바로 쓸 수 있는 정보를 작성하세요.{custom_str}
+
+[요청 사항]
+1. 핵심 키워드: 사진 속 상품을 가장 잘 설명하는 키워드 정확히 5개
+2. 상품명: 쇼핑몰 등록용 상품명 한 줄
+3. 특징 요약: 상품의 주요 특징을 2~3문장으로 요약 (간략 설명용)
+4. 상세 문구: 구매 욕구를 자극하는 마케팅 상세 문구 (2~4문단)
+
+[출력 형식] 반드시 아래 JSON 형식으로만 답변하세요. 다른 텍스트는 포함하지 마세요:
+{{
+  "keywords": ["키워드1", "키워드2", "키워드3", "키워드4", "키워드5"],
+  "product_name": "상품명",
+  "summary": "특징 요약",
+  "description": "마케팅 상세 문구"
+}}"""
+
+    @staticmethod
+    def build_analysis_text(result: ImageAnalysisResult) -> str:
+        """사람이 읽기 좋은 분석 결과 전문 (데모 /analyze 형식)."""
+        return (
+            "다음은 이미지에서 추출한 정보입니다.\n\n"
+            "1. **핵심 키워드 5개:**\n"
+            f"    {', '.join(result.keywords)}\n\n"
+            "2. **쇼핑몰 등록용 상품명:**\n"
+            f"    {result.product_name}\n\n"
+            "3. **상품의 주요 특징 요약:**\n"
+            f"    {result.summary}"
+        )
 
     # ─────────────────────────────────────────────────────
     # 쇼핑몰 시안 → 테마/카피/블록 추천 (빌더용)
@@ -342,6 +480,138 @@ class AIService:
   "recommended_blocks": ["hero", "featured-products", ...]
 }}"""
 
+    # ─────────────────────────────────────────────────────
+    # 리뷰 분석 — 감정/요약/답글 초안
+    # ─────────────────────────────────────────────────────
+
+    async def analyze_review(self, content: str, rating: int) -> ReviewAnalysisResult:
+        """
+        리뷰 본문과 별점을 받아 {sentiment, summary, draft_reply}를 만든다.
+
+        - Mock: 별점 기반 폴백 (샘플 HTML의 catch 블록 로직 그대로).
+        - Real: Gemini에 본문+별점 보내 JSON으로 응답 받음.
+        """
+        if self.use_mock:
+            logger.info(f"[MOCK] 리뷰 분석: rating={rating}")
+            return self._mock_analyze_review(content, rating)
+
+        logger.info(f"[REAL] Gemini 리뷰 분석: rating={rating}")
+        return await self._real_analyze_review(content, rating)
+
+    async def regenerate_review_reply(
+        self,
+        content: str,
+        rating: int,
+        prev_reply: str | None = None,
+    ) -> str:
+        """답글만 새로 한 문장 생성한다."""
+        if self.use_mock:
+            return self._mock_review_reply(rating)
+
+        return await self._real_regenerate_reply(content, rating, prev_reply)
+
+    def _mock_analyze_review(self, content: str, rating: int) -> ReviewAnalysisResult:
+        """키 없이도 동작하는 폴백 — 별점 1~2 부정, 3 중립, 4~5 긍정."""
+        if rating >= 4:
+            sentiment, summary = "pos", "만족한 고객"
+        elif rating == 3:
+            sentiment, summary = "neu", "보통 반응"
+        else:
+            sentiment, summary = "neg", "불만 고객"
+        return ReviewAnalysisResult(
+            sentiment=sentiment,
+            summary=summary,
+            draft_reply=self._mock_review_reply(rating),
+        )
+
+    @staticmethod
+    def _mock_review_reply(rating: int) -> str:
+        if rating >= 4:
+            return "소중한 리뷰 감사드립니다! 앞으로도 좋은 상품으로 보답할게요 😊"
+        if rating == 3:
+            return "리뷰 감사드립니다. 더 나은 서비스로 개선하겠습니다!"
+        return "불편을 드려 정말 죄송합니다. 빠르게 해결해드리겠습니다."
+
+    async def _real_analyze_review(self, content: str, rating: int) -> ReviewAnalysisResult:
+        from google.genai import types
+
+        prompt = self._build_review_prompt(content, rating)
+        response = await self._genai_client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=self.max_tokens),
+        )
+        raw = response.text or ""
+        try:
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            if start == -1 or end == 0:
+                raise ValueError("응답에서 JSON을 찾을 수 없음")
+            parsed = json.loads(raw[start:end])
+            sentiment = str(parsed.get("sentiment") or "neu").strip().lower()
+            if sentiment not in {"pos", "neu", "neg"}:
+                sentiment = "neu"
+            return ReviewAnalysisResult(
+                sentiment=sentiment,
+                summary=str(parsed.get("summary") or "").strip()[:60],
+                draft_reply=str(parsed.get("draft_reply") or "").strip(),
+            )
+        except (ValueError, KeyError, json.JSONDecodeError) as e:
+            logger.warning(f"리뷰 분석 응답 파싱 실패: {e} → mock 폴백")
+            return self._mock_analyze_review(content, rating)
+
+    async def _real_regenerate_reply(
+        self,
+        content: str,
+        rating: int,
+        prev_reply: str | None,
+    ) -> str:
+        from google.genai import types
+
+        prev = f"\n- 이전 답글(피해서 새로 작성): {prev_reply}" if prev_reply else ""
+        prompt = (
+            f"별점 {rating}점 리뷰: \"{content}\"\n"
+            f"위 리뷰에 대한 사장님 답글을 40자 내외, 친근하고 따뜻하게 새로 한 줄 써줘. "
+            f"답글 본문만 출력해. 따옴표·접두어 금지.{prev}"
+        )
+        response = await self._genai_client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=300),
+        )
+        text = (response.text or "").strip()
+        # JSON/코드펜스 잔재 제거
+        for token in ("```json", "```"):
+            text = text.replace(token, "")
+        text = text.strip().strip('"').strip("'").strip()
+        return text or self._mock_review_reply(rating)
+
+    @staticmethod
+    def _build_review_prompt(content: str, rating: int) -> str:
+        return f"""당신은 한국 쇼핑몰 사장님을 돕는 CX 보조 AI입니다.
+아래 고객 리뷰를 분석해서 감정/한줄요약/답글초안을 JSON 으로 만드세요.
+
+[리뷰]
+- 별점: {rating}점
+- 본문: \"\"\"{content}\"\"\"
+
+[감정 기준]
+- 별점은 참고만 하고 본문 내용을 우선합니다. (5점이어도 본문이 부정이면 neg)
+- pos: 만족/추천/재구매 의사 등 긍정 신호 우세
+- neg: 불만/환불/품질불만/배송불만 등 부정 신호 우세
+- neu: 그 외 또는 양가적
+
+[작성 규칙]
+- summary: 사장님이 한눈에 알아볼 수 있는 15자 이내 한 줄 요약
+- draft_reply: 40자 내외, 친근하고 따뜻한 사장님 톤. 고객 이름은 넣지 않음. 이모지는 최대 1개.
+
+[출력 형식] 반드시 아래 JSON 형식으로만 답변하세요. 다른 텍스트 금지:
+{{
+  "sentiment": "pos | neu | neg",
+  "summary": "한 줄 요약",
+  "draft_reply": "답글 초안"
+}}"""
+
     def _parse_response(self, raw_response: str, product_name: str) -> AIGenerationResult:
         try:
             start = raw_response.find("{")
@@ -363,3 +633,15 @@ class AIService:
                 ai_description=f"{product_name} 상품 상세페이지 (AI 생성 실패 - 수동 입력 필요)",
                 ai_tags=["미분류"],
             )
+
+
+# 모듈-레벨 싱글톤: AIService는 유저별 상태가 없어 공유해도 안전하다.
+# REAL 모드에서 genai 클라이언트를 매 요청마다 새로 초기화하지 않도록 1회만 생성한다.
+_ai_service: "AIService | None" = None
+
+
+def get_ai_service() -> "AIService":
+    global _ai_service
+    if _ai_service is None:
+        _ai_service = AIService()
+    return _ai_service

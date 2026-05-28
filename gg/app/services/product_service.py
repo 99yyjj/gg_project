@@ -23,12 +23,27 @@ from app.schemas.product import (
     ProductSummary,
     ProductUpdateRequest,
 )
-from app.services.cafe24_client import get_cafe24_client
+from app.services.cafe24_client import Cafe24Client
 
 logger = logging.getLogger(__name__)
 
 # (file_bytes, filename) — 라우터에서 검증/추출해 서비스로 넘기는 이미지 표현
 ImagePart = tuple[bytes, str]
+
+
+def _extract_additional_image_urls(raw: dict[str, Any]) -> list[str]:
+    """Cafe24 상품 응답의 additional_image 배열 → URL 리스트."""
+    items = raw.get("additional_image") or []
+    urls: list[str] = []
+    for it in items:
+        if isinstance(it, str):
+            urls.append(it)
+        elif isinstance(it, dict):
+            for key in ("big", "medium", "small", "image_url", "path"):
+                if it.get(key):
+                    urls.append(it[key])
+                    break
+    return urls
 
 
 def _to_summary(raw: dict[str, Any]) -> ProductSummary:
@@ -46,9 +61,11 @@ def _to_summary(raw: dict[str, Any]) -> ProductSummary:
         product_code=raw.get("product_code"),
         product_name=raw.get("product_name", ""),
         price=price_val,
+        summary_description=raw.get("summary_description"),
         description=raw.get("description"),
         detail_image=raw.get("detail_image"),
         list_image=raw.get("list_image"),
+        additional_images=_extract_additional_image_urls(raw),
         display=raw.get("display"),
         selling=raw.get("selling"),
         category_no=category_no,
@@ -56,8 +73,8 @@ def _to_summary(raw: dict[str, Any]) -> ProductSummary:
 
 
 class ProductService:
-    def __init__(self, db: AsyncSession) -> None:
-        self.cafe24 = get_cafe24_client()
+    def __init__(self, db: AsyncSession, cafe24: Cafe24Client) -> None:
+        self.cafe24 = cafe24
         self.db = db
 
     # ─────────── 소유권 조회 헬퍼 ───────────
@@ -150,6 +167,21 @@ class ProductService:
             raw_product["list_image"] = attached["list_image"]
         return []
 
+    async def _attach_tags(self, product_no: int, tags: list[str] | None) -> list[str]:
+        """검색 키워드(태그)를 부착한다. 실패해도 상품은 살리고 경고만 반환."""
+        clean = [t.strip() for t in (tags or []) if t and t.strip()]
+        if not clean:
+            return []
+        try:
+            await self.cafe24.set_product_tags(product_no, clean)
+            return []
+        except Exception as e:
+            logger.warning(f"태그 저장 실패 product_no={product_no}: {e}")
+            return [
+                f"상품은 저장됐지만 키워드(태그) 저장에 실패했습니다 "
+                f"(product_no={product_no}). 수정 화면에서 다시 시도해 주세요."
+            ]
+
     # ─────────── 등록 ───────────
 
     async def create_product(
@@ -171,6 +203,8 @@ class ProductService:
             "display": request.display,
             "selling": request.selling,
         }
+        if request.summary_description is not None:
+            payload["summary_description"] = request.summary_description
         if request.category_no:
             payload["category"] = [{"category_no": request.category_no}]
 
@@ -184,6 +218,9 @@ class ProductService:
 
         # 2단계: 이미지 부착 (필요한 경우)
         warnings = await self._attach_images(product_no, created, detail_image, list_image)
+
+        # 3단계: 검색 키워드(태그) 부착 (필요한 경우)
+        warnings += await self._attach_tags(product_no, request.tags)
 
         return _to_summary(created), warnings
 
@@ -207,6 +244,8 @@ class ProductService:
             payload["price"] = str(int(request.price))
         if request.supply_price is not None:
             payload["supply_price"] = str(int(request.supply_price))
+        if request.summary_description is not None:
+            payload["summary_description"] = request.summary_description
         if request.description is not None:
             payload["description"] = request.description
         if request.display is not None:
@@ -232,7 +271,42 @@ class ProductService:
         # 2단계: 이미지 부착 (필요한 경우)
         warnings = await self._attach_images(product_no, updated, detail_image, list_image)
 
+        # 3단계: 검색 키워드(태그) 부착 (비어있지 않을 때만 — 기존 태그 보존)
+        warnings += await self._attach_tags(product_no, request.tags)
+
         return _to_summary(updated), warnings
+
+    # ─────────── 추가(상세) 이미지 ───────────
+
+    async def _ensure_owner(self, user_id: int, product_no: int) -> None:
+        if not await self._check_owner(user_id, product_no):
+            raise PermissionError(f"product_no={product_no}에 대한 권한이 없습니다.")
+
+    async def list_additional_images(
+        self, user_id: int, product_no: int
+    ) -> list[str]:
+        await self._ensure_owner(user_id, product_no)
+        return await self.cafe24.get_additional_images(product_no)
+
+    async def add_additional_images(
+        self, user_id: int, product_no: int, images: list[bytes]
+    ) -> list[str]:
+        await self._ensure_owner(user_id, product_no)
+        return await self.cafe24.create_additional_images(product_no, images)
+
+    async def update_additional_image(
+        self, user_id: int, product_no: int, additional_image_no: int, image: bytes
+    ) -> str | None:
+        await self._ensure_owner(user_id, product_no)
+        return await self.cafe24.update_additional_image(
+            product_no, additional_image_no, image
+        )
+
+    async def delete_additional_image(
+        self, user_id: int, product_no: int, additional_image_no: int
+    ) -> bool:
+        await self._ensure_owner(user_id, product_no)
+        return await self.cafe24.delete_additional_image(product_no, additional_image_no)
 
     # ─────────── 삭제 ───────────
 

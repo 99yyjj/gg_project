@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ShoppingBag, ChevronLeft, ChevronRight } from "lucide-react";
 
+import CartButton from "@/components/shop/cart-button";
 import Storefront from "@/components/shop/storefront";
 import {
   fetchShopCategories,
@@ -86,7 +87,7 @@ export default function ShopPage() {
               <p className="text-xs text-slate-500">@{shop.username}</p>
             )}
           </div>
-          <ShoppingBag className="w-6 h-6 text-emerald-600" />
+          <CartButton username={username} className="text-emerald-600" />
         </div>
       </header>
 

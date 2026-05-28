@@ -25,6 +25,18 @@ class ShopTheme(BaseModel):
     text_color: Optional[str] = None
     font_family: Optional[str] = None
     tone: Optional[str] = Field(None, description="modern / playful / minimal …")
+    header_align: Optional[str] = Field(
+        None, description="[deprecated] 구버전 헤더 정렬: left / center"
+    )
+    header_x: Optional[float] = Field(
+        None, description="쇼핑몰 이름 가로 위치 (헤더 폭 대비 왼쪽 모서리 %)"
+    )
+    header_y: Optional[float] = Field(
+        None, description="쇼핑몰 이름 세로 위치 (헤더 높이 대비 중심 %)"
+    )
+    header_font_size: Optional[float] = Field(
+        None, description="쇼핑몰 이름 글자 크기 (px)"
+    )
 
 
 class ShopTemplate(BaseModel):

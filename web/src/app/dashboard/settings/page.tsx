@@ -5,7 +5,12 @@ import { ExternalLink, Link2 } from "lucide-react";
 
 import { useMe } from "@/lib/queries";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+// Cafe24 OAuth는 콜백(공개 HTTPS 도메인)과 같은 출처에서 시작해야 state 쿠키가
+// 콜백까지 전달된다. OAUTH 전용 base를 쓰고, 미설정 시 API base로 폴백한다.
+const OAUTH_BASE =
+  process.env.NEXT_PUBLIC_OAUTH_BASE ||
+  process.env.NEXT_PUBLIC_API_BASE ||
+  "http://127.0.0.1:8000";
 
 export default function SettingsPage() {
   const { data: me } = useMe();
@@ -13,8 +18,7 @@ export default function SettingsPage() {
   if (!me) return null;
 
   function handleCafe24Login() {
-    const BASE_URL = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
-    window.location.href = `${BASE_URL}/auth/cafe24/login`;
+    window.location.href = `${OAUTH_BASE}/auth/cafe24/login`;
   }
 
   return (

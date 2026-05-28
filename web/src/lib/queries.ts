@@ -3,6 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import {
+  AdditionalImageListResponse,
+  AdditionalImageMutationResponse,
+  AIImageAnalysisResponse,
   AIMarketingCopyRequest,
   AIMarketingCopyResponse,
   ProductCreateRequest,
@@ -10,6 +13,12 @@ import {
   ProductMutationResponse,
   ProductSummary,
   ProductUpdateRequest,
+  RegenerateReplyResponse,
+  Review,
+  ReviewCreateRequest,
+  ReviewFilter,
+  ReviewListResponse,
+  ReviewUpdateRequest,
   TokenResponse,
   UserResponse,
 } from "./types";
@@ -53,6 +62,21 @@ export function useMe() {
   });
 }
 
+/** 내 정보 수정 (쇼핑몰 이름). */
+export function useUpdateMe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { shop_name: string }): Promise<UserResponse> => {
+      const { data } = await api.patch<UserResponse>("/auth/me", payload);
+      return data;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["me"], data);
+      qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
 // ─────────────── products ───────────────
 
 /** 상품 등록·수정 mutation에 파일을 함께 전달하기 위한 확장 타입 */
@@ -74,6 +98,11 @@ function buildProductFormData(
 
   for (const [k, v] of Object.entries(rest)) {
     if (v == null) continue;
+    if (Array.isArray(v)) {
+      // 태그처럼 배열인 값은 같은 키로 여러 번 append (백엔드 list[str] Form)
+      for (const item of v) fd.append(k, String(item));
+      continue;
+    }
     fd.append(k, String(v));
   }
   if (detail_image_file) fd.append("detail_image_file", detail_image_file);
@@ -145,6 +174,75 @@ export function useDeleteProduct() {
       return data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["products"] }),
+  });
+}
+
+// ─────────────── 추가(상세) 이미지 ───────────────
+
+/** 추가 이미지 다중 업로드 — 상품 생성 직후 직접 호출용 (훅 밖에서도 사용). */
+export async function addAdditionalImagesRequest(
+  productNo: number,
+  files: File[]
+): Promise<AdditionalImageMutationResponse> {
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  const { data } = await api.post<AdditionalImageMutationResponse>(
+    `/products/${productNo}/additionalimages`,
+    fd
+  );
+  return data;
+}
+
+export function useAdditionalImages(productNo: number | undefined) {
+  return useQuery({
+    queryKey: ["additional-images", productNo],
+    queryFn: async (): Promise<AdditionalImageListResponse> => {
+      const { data } = await api.get<AdditionalImageListResponse>(
+        `/products/${productNo}/additionalimages`
+      );
+      return data;
+    },
+    enabled: typeof productNo === "number",
+  });
+}
+
+export function useAddAdditionalImages(productNo: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (files: File[]) => addAdditionalImagesRequest(productNo, files),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["additional-images", productNo] }),
+  });
+}
+
+export function useUpdateAdditionalImage(productNo: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { additionalImageNo: number; file: File }) => {
+      const fd = new FormData();
+      fd.append("file", payload.file);
+      const { data } = await api.put<AdditionalImageMutationResponse>(
+        `/products/${productNo}/additionalimages/${payload.additionalImageNo}`,
+        fd
+      );
+      return data;
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["additional-images", productNo] }),
+  });
+}
+
+export function useDeleteAdditionalImage(productNo: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (additionalImageNo: number) => {
+      const { data } = await api.delete<AdditionalImageMutationResponse>(
+        `/products/${productNo}/additionalimages/${additionalImageNo}`
+      );
+      return data;
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["additional-images", productNo] }),
   });
 }
 
@@ -221,4 +319,104 @@ export async function generateMarketingCopy(
     payload
   );
   return data;
+}
+
+export async function analyzeProductImage(
+  file: File
+): Promise<AIImageAnalysisResponse> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const { data } = await api.post<AIImageAnalysisResponse>(
+    "/ai/analyze-image",
+    fd
+  );
+  return data;
+}
+
+// ─────────────── reviews ───────────────
+
+/**
+ * 상품 리뷰 목록 + 통계.
+ *
+ * 신규 리뷰는 sentiment='loading' 으로 들어와 백그라운드 AI 분석이 끝나면
+ * 'pos'|'neu'|'neg' 로 갱신된다. UI 쪽에서 loading 상태인 카드가 있으면
+ * 짧은 폴링으로 새로 받으면 된다 — refetchInterval 옵션은 호출 측에서 결정.
+ */
+export function useProductReviews(
+  productNo: number | undefined,
+  filter: ReviewFilter = "all"
+) {
+  return useQuery({
+    queryKey: ["product-reviews", productNo, filter],
+    queryFn: async (): Promise<ReviewListResponse> => {
+      const { data } = await api.get<ReviewListResponse>(
+        `/products/${productNo}/reviews`,
+        { params: { filter } }
+      );
+      return data;
+    },
+    enabled: typeof productNo === "number",
+    refetchInterval: (query) => {
+      // loading 상태 리뷰가 남아 있으면 1.5초 간격으로 폴링.
+      const data = query.state.data as ReviewListResponse | undefined;
+      const hasLoading = data?.items?.some((r) => r.sentiment === "loading");
+      return hasLoading ? 1500 : false;
+    },
+  });
+}
+
+export function useCreateReview(productNo: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: ReviewCreateRequest): Promise<Review> => {
+      const { data } = await api.post<Review>(
+        `/products/${productNo}/reviews`,
+        payload
+      );
+      return data;
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["product-reviews", productNo] }),
+  });
+}
+
+export function useUpdateReview(productNo: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      id: number;
+      body: ReviewUpdateRequest;
+    }): Promise<Review> => {
+      const { data } = await api.patch<Review>(
+        `/reviews/${payload.id}`,
+        payload.body
+      );
+      return data;
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["product-reviews", productNo] }),
+  });
+}
+
+export function useDeleteReview(productNo: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/reviews/${id}`);
+      return id;
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["product-reviews", productNo] }),
+  });
+}
+
+export function useRegenerateReply() {
+  return useMutation({
+    mutationFn: async (id: number): Promise<RegenerateReplyResponse> => {
+      const { data } = await api.post<RegenerateReplyResponse>(
+        `/reviews/${id}/regenerate-reply`
+      );
+      return data;
+    },
+  });
 }

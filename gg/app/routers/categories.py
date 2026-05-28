@@ -6,13 +6,12 @@ Cafe24 카테고리 API에 직접 위임한다 (로컬 DB 폴백 없음).
 
 import logging
 
-import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_current_user
+from app.deps import get_current_user, get_db, make_cafe24_client
 from app.models.user import User
 from app.schemas.category import CategoryListResponse, CategoryResponse
-from app.services.cafe24_client import Cafe24Client
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +20,11 @@ router = APIRouter(prefix="/categories", tags=["카테고리"])
 
 @router.get("/", response_model=CategoryListResponse, summary="카테고리 목록 조회")
 async def list_categories(
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> CategoryListResponse:
-    try:
-        raw = await Cafe24Client().get_categories()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Cafe24 카테고리 조회 실패({e.response.status_code})",
-        )
+    # Cafe24 API 오류는 전역 예외 핸들러(app/core/errors.py)가 변환한다.
+    raw = await make_cafe24_client(current_user, db).get_categories()
 
     items = [
         CategoryResponse(

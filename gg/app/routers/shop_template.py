@@ -27,7 +27,7 @@ from app.schemas.shop_template import (
     ShopTemplate,
     ShopTemplateUpdateRequest,
 )
-from app.services.ai_service import AIService
+from app.services.ai_service import get_ai_service
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ async def ai_design(
     current_user: User = Depends(get_current_user),
 ) -> AIDesignResponse:
     try:
-        result = await AIService().generate_shop_theme(
+        result = await get_ai_service().generate_shop_theme(
             preset_id=request.preset_id,
             block_types=[b.type for b in request.blocks],
             shop_name=request.shop_name or current_user.shop_name,

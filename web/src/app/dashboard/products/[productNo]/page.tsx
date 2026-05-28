@@ -1,23 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { Edit3, Trash2, ArrowLeft } from "lucide-react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback } from "react";
+import { ArrowLeft, Edit3, Info, MessageSquare, Trash2 } from "lucide-react";
 
+import { ProductReviewsPanel } from "@/components/reviews/product-reviews-panel";
 import { useToast } from "@/components/toast";
 import { errorMessage } from "@/lib/api";
 import { useDeleteProduct, useProduct } from "@/lib/queries";
+
+type Tab = "info" | "reviews";
 
 export default function ProductDetailPage() {
   const params = useParams<{ productNo: string }>();
   const productNo = Number(params.productNo);
   const router = useRouter();
+  const search = useSearchParams();
   const toast = useToast();
+
+  const tab: Tab = search.get("tab") === "reviews" ? "reviews" : "info";
 
   const { data: product, isLoading, isError } = useProduct(
     Number.isFinite(productNo) ? productNo : undefined
   );
   const del = useDeleteProduct();
+
+  // 탭 전환 — URL 쿼리스트링으로 상태 보존 (새로고침/공유에도 유지)
+  const setTab = useCallback(
+    (next: Tab) => {
+      const qs = new URLSearchParams(Array.from(search.entries()));
+      if (next === "info") qs.delete("tab");
+      else qs.set("tab", next);
+      const suffix = qs.toString();
+      router.replace(
+        `/dashboard/products/${productNo}${suffix ? `?${suffix}` : ""}`,
+        { scroll: false }
+      );
+    },
+    [router, productNo, search]
+  );
 
   async function handleDelete() {
     if (!product) return;
@@ -78,6 +100,65 @@ export default function ProductDetailPage() {
         </div>
       </header>
 
+      {/* 탭 — 정보 / 리뷰 */}
+      <div className="flex border-b border-slate-200 mb-6">
+        <TabButton
+          active={tab === "info"}
+          onClick={() => setTab("info")}
+          icon={<Info className="w-4 h-4" />}
+          label="정보"
+        />
+        <TabButton
+          active={tab === "reviews"}
+          onClick={() => setTab("reviews")}
+          icon={<MessageSquare className="w-4 h-4" />}
+          label="리뷰"
+        />
+      </div>
+
+      {tab === "info" ? (
+        <ProductInfo product={product} />
+      ) : (
+        <ProductReviewsPanel productNo={productNo} />
+      )}
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mb-px px-4 py-2.5 text-sm font-medium border-b-2 inline-flex items-center gap-1.5 transition-colors ${
+        active
+          ? "border-indigo-600 text-indigo-700"
+          : "border-transparent text-slate-500 hover:text-slate-700"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function ProductInfo({
+  product,
+}: {
+  product: NonNullable<ReturnType<typeof useProduct>["data"]>;
+}) {
+  return (
+    <>
       <section className="bg-white rounded-2xl border border-slate-200 p-6 grid grid-cols-2 gap-x-6 gap-y-3 text-sm mb-6">
         <Row label="판매가" value={`${product.price?.toLocaleString() ?? "-"}원`} />
         <Row label="진열" value={product.display === "T" ? "진열" : "미진열"} />
@@ -107,7 +188,7 @@ export default function ProductDetailPage() {
           <p className="text-sm text-slate-900">상세 문구가 없습니다.</p>
         )}
       </section>
-    </div>
+    </>
   );
 }
 

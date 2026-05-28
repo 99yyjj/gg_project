@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     CAFE24_SCOPES: str = "mall.read_product,mall.write_product,mall.read_category,mall.write_category"
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # OAuth state 쿠키에 Secure 속성을 붙일지 여부.
+    # 로컬(http)에서는 False, 프로덕션(HTTPS)에서는 반드시 True로 설정한다.
+    COOKIE_SECURE: bool = False
+
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://mac@localhost/gg_db"
 

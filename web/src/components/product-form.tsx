@@ -1,24 +1,26 @@
 "use client";
 
-import { Eye, ImageIcon, Loader2, Sparkles, Trash2, Undo2, Upload, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Camera, Eye, ImageIcon, Loader2, Trash2, Undo2, Upload, X } from "lucide-react";
+import { useRef, useState } from "react";
 
 const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/png"];
 const ALLOWED_IMAGE_LABEL = "JPG, PNG";
 
+import {
+  EditProductImagesPicker,
+  NewProductImagesPicker,
+} from "@/components/product-images-picker";
 import ProductPreviewModal from "@/components/product-preview-modal";
 import { errorMessage } from "@/lib/api";
-import { generateMarketingCopy } from "@/lib/queries";
+import { analyzeProductImage } from "@/lib/queries";
 import { useToast } from "@/components/toast";
 
 export type ProductFormValues = {
   product_name: string;
   price: string;
-  supply_price: string;
+  summary_description: string;
   description: string;
-  category_no: string;
   display: "T" | "F";
-  selling: "T" | "F";
   /** 기존 Cafe24 대표 이미지 URL (수정 화면에서 미리 채워짐) */
   detail_image: string;
   /** 기존 Cafe24 목록 이미지 URL (수정 화면에서 미리 채워짐) */
@@ -31,23 +33,27 @@ export type ProductFormValues = {
   delete_detail_image: boolean;
   /** 기존 목록 이미지를 Cafe24에서 삭제 표시 */
   delete_list_image: boolean;
+  /** 신규 등록 시 함께 올릴 상세(추가) 이미지 파일들 (스테이징) */
+  additional_image_files: File[];
+  /** AI 사진 분석으로 추출한 검색 키워드(태그) */
+  tags: string[];
 };
 
 export function emptyFormValues(): ProductFormValues {
   return {
     product_name: "",
     price: "",
-    supply_price: "",
+    summary_description: "",
     description: "",
-    category_no: "",
     display: "T",
-    selling: "T",
     detail_image: "",
     list_image: "",
     detail_image_file: null,
     list_image_file: null,
     delete_detail_image: false,
     delete_list_image: false,
+    additional_image_files: [],
+    tags: [],
   };
 }
 
@@ -59,6 +65,8 @@ type Props = {
   onSubmit: () => void;
   username?: string;
   shopName?: string;
+  /** 수정 모드에서 전달. 있으면 '목록 이미지' 대신 상세(추가) 이미지 갤러리를 관리한다. */
+  productNo?: number;
 };
 
 export default function ProductForm({
@@ -69,41 +77,11 @@ export default function ProductForm({
   onSubmit,
   username,
   shopName,
+  productNo,
 }: Props) {
   const toast = useToast();
-  const [aiLoading, setAiLoading] = useState(false);
-  const [tags, setTags] = useState<string[]>([]);
-  const [customPrompt, setCustomPrompt] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
   const [preview, setPreview] = useState(false);
-
-  const detailPreviewUrl = useRef<string | null>(null);
-  const listPreviewUrl = useRef<string | null>(null);
-
-  // 파일 선택 시 Object URL 생성 (메모리 누수 방지를 위해 revoke 관리)
-  const [detailThumb, setDetailThumb] = useState<string | null>(null);
-  const [listThumb, setListThumb] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (values.detail_image_file) {
-      if (detailPreviewUrl.current) URL.revokeObjectURL(detailPreviewUrl.current);
-      const url = URL.createObjectURL(values.detail_image_file);
-      detailPreviewUrl.current = url;
-      setDetailThumb(url);
-    } else {
-      setDetailThumb(null);
-    }
-  }, [values.detail_image_file]);
-
-  useEffect(() => {
-    if (values.list_image_file) {
-      if (listPreviewUrl.current) URL.revokeObjectURL(listPreviewUrl.current);
-      const url = URL.createObjectURL(values.list_image_file);
-      listPreviewUrl.current = url;
-      setListThumb(url);
-    } else {
-      setListThumb(null);
-    }
-  }, [values.list_image_file]);
 
   function update<K extends keyof ProductFormValues>(
     k: K,
@@ -112,26 +90,26 @@ export default function ProductForm({
     setValues({ ...values, [k]: v });
   }
 
-  async function handleAI() {
-    if (!values.product_name.trim()) {
-      toast.push("상품명을 먼저 입력하세요.", "err");
+  async function handleAnalyzeImage() {
+    if (!values.detail_image_file) {
+      toast.push("분석할 대표 이미지를 먼저 선택하세요.", "err");
       return;
     }
-    setAiLoading(true);
+    setAnalyzing(true);
     try {
-      const ai = await generateMarketingCopy({
-        product_name: values.product_name,
-        price: values.price ? Number(values.price) : undefined,
-        original_description: values.description || undefined,
-        custom_prompt: customPrompt || undefined,
+      const res = await analyzeProductImage(values.detail_image_file);
+      setValues({
+        ...values,
+        product_name: res.product_name || values.product_name,
+        summary_description: res.summary || values.summary_description,
+        description: res.description || values.description,
+        tags: res.keywords.length ? res.keywords : values.tags,
       });
-      update("description", ai.description);
-      setTags(ai.tags);
-      toast.push("AI 문구를 채웠습니다. 자유롭게 수정하세요.");
+      toast.push("사진 분석 완료! 내용을 확인하고 자유롭게 수정하세요.");
     } catch (e) {
-      toast.push(errorMessage(e, "AI 생성에 실패했습니다."), "err");
+      toast.push(errorMessage(e, "사진 분석에 실패했습니다."), "err");
     } finally {
-      setAiLoading(false);
+      setAnalyzing(false);
     }
   }
 
@@ -156,15 +134,6 @@ export default function ProductForm({
               placeholder="예: 봄 데일리 셔츠"
             />
           </Field>
-          <Field label="카테고리 번호 (선택)">
-            <input
-              type="number"
-              value={values.category_no}
-              onChange={(e) => update("category_no", e.target.value)}
-              className={inputCls}
-              placeholder="예: 27"
-            />
-          </Field>
           <Field label="판매가 (원)">
             <input
               type="number"
@@ -172,15 +141,6 @@ export default function ProductForm({
               onChange={(e) => update("price", e.target.value)}
               className={inputCls}
               placeholder="예: 19900"
-            />
-          </Field>
-          <Field label="공급가 (선택)">
-            <input
-              type="number"
-              value={values.supply_price}
-              onChange={(e) => update("supply_price", e.target.value)}
-              className={inputCls}
-              placeholder="비우면 판매가와 동일"
             />
           </Field>
           <Field label="진열">
@@ -192,117 +152,93 @@ export default function ProductForm({
               <option value="T">진열</option>
               <option value="F">미진열</option>
             </select>
-          </Field>
-          <Field label="판매">
-            <select
-              value={values.selling}
-              onChange={(e) => update("selling", e.target.value as "T" | "F")}
-              className={inputCls}
-            >
-              <option value="T">판매중</option>
-              <option value="F">판매안함</option>
-            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              진열하면 손님 화면에 보이고, 미진열이면 손님 화면에서 숨겨집니다.
+            </p>
           </Field>
         </div>
+        <Field label="간략 설명 (선택)">
+          <input
+            type="text"
+            value={values.summary_description}
+            onChange={(e) => update("summary_description", e.target.value)}
+            className={inputCls}
+            placeholder="상품 상단에 노출되는 한 줄 설명"
+          />
+        </Field>
       </section>
 
-      {/* 이미지 */}
+      {/* 이미지 — 대표 이미지 한 자리에서 여러 장 픽 */}
       <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
         <h2 className="font-semibold">상품 이미지</h2>
-        <p className="text-xs text-slate-500">
-          이미지를 선택하면 상품 등록·수정 시 Cafe24에 자동 업로드됩니다.
-        </p>
-
-        <div className="grid grid-cols-2 gap-4">
-          {/* 대표 이미지 */}
-          <ImagePicker
-            label="대표(상세) 이미지"
-            newPreview={detailThumb}
-            existingUrl={values.detail_image}
-            fileName={values.detail_image_file?.name}
-            hasNewFile={!!values.detail_image_file}
-            markedForDeletion={values.delete_detail_image}
-            onPickFile={(file) =>
+        {productNo ? (
+          <EditProductImagesPicker
+            productNo={productNo}
+            existingCoverUrl={values.detail_image}
+            coverMarkedForDeletion={values.delete_detail_image}
+            pendingCoverFile={values.detail_image_file}
+            onPendingCoverFileChange={(file) =>
               setValues({
                 ...values,
                 detail_image_file: file,
-                delete_detail_image: false,
+                delete_detail_image: file ? false : values.delete_detail_image,
               })
             }
-            onCancelPick={() => update("detail_image_file", null)}
-            onMarkDeletion={() =>
+            onMarkCoverDeletion={() =>
               setValues({
                 ...values,
                 delete_detail_image: true,
                 detail_image_file: null,
               })
             }
-            onUndoDeletion={() => update("delete_detail_image", false)}
+            onUndoCoverDeletion={() => update("delete_detail_image", false)}
           />
-
-          {/* 목록 이미지 */}
-          <ImagePicker
-            label="목록 이미지 (선택)"
-            newPreview={listThumb}
-            existingUrl={values.list_image}
-            fileName={values.list_image_file?.name}
-            hasNewFile={!!values.list_image_file}
-            markedForDeletion={values.delete_list_image}
-            onPickFile={(file) =>
+        ) : (
+          <NewProductImagesPicker
+            coverFile={values.detail_image_file}
+            extraFiles={values.additional_image_files}
+            onChange={({ coverFile, extraFiles }) =>
               setValues({
                 ...values,
-                list_image_file: file,
-                delete_list_image: false,
+                detail_image_file: coverFile,
+                additional_image_files: extraFiles,
               })
             }
-            onCancelPick={() => update("list_image_file", null)}
-            onMarkDeletion={() =>
-              setValues({
-                ...values,
-                delete_list_image: true,
-                list_image_file: null,
-              })
-            }
-            onUndoDeletion={() => update("delete_list_image", false)}
           />
-        </div>
+        )}
       </section>
 
-      {/* AI 문구 */}
+      {/* 상품 설명 (AI 사진 분석) */}
       <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold">마케팅 문구</h2>
+          <h2 className="font-semibold">상품 설명</h2>
           <button
             type="button"
-            onClick={handleAI}
-            disabled={aiLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-60"
+            onClick={handleAnalyzeImage}
+            disabled={analyzing || !values.detail_image_file}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-50"
           >
-            {aiLoading ? (
+            {analyzing ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Sparkles className="w-4 h-4" />
+              <Camera className="w-4 h-4" />
             )}
-            AI로 채우기
+            사진으로 분석
           </button>
         </div>
-        <input
-          type="text"
-          value={customPrompt}
-          onChange={(e) => setCustomPrompt(e.target.value)}
-          className={inputCls}
-          placeholder="톤앤매너 (선택, 예: 20대 여성 타깃, 고급스럽게)"
-        />
+        <p className="text-xs text-slate-500">
+          대표 이미지를 올린 뒤 <b>사진으로 분석</b>을 누르면 상품명·간략설명·상세설명·키워드를 AI가 채워줍니다.
+        </p>
         <textarea
           value={values.description}
           onChange={(e) => update("description", e.target.value)}
           rows={10}
           className={`${inputCls} font-mono text-sm leading-relaxed`}
-          placeholder="상세 문구를 직접 작성하거나 AI로 채워보세요."
+          placeholder="상세 문구를 직접 작성하거나 사진으로 분석해 채워보세요."
         />
-        {tags.length > 0 && (
+        {values.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {tags.map((t) => (
+            {values.tags.map((t) => (
               <span
                 key={t}
                 className="text-xs bg-slate-100 text-slate-900 px-2 py-1 rounded-full"
@@ -351,7 +287,7 @@ export default function ProductForm({
 
 // ─── 이미지 선택 컴포넌트 ───────────────────────────────────────
 
-function ImagePicker({
+export function ImagePicker({
   label,
   newPreview,
   existingUrl,

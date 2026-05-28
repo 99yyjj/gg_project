@@ -4,6 +4,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { tokenStore } from "@/lib/auth-storage";
+import { api, errorMessage } from "@/lib/api";
+
+// React 19 StrictMode는 effect를 두 번 실행한다. 일회용 code는 두 번째
+// 교환에서 400이 나므로, 이미 처리한 code는 모듈 스코프에서 한 번만 보낸다.
+const processed = new Set<string>();
 
 function Cafe24CallbackInner() {
   const router = useRouter();
@@ -13,8 +18,7 @@ function Cafe24CallbackInner() {
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
-    const accessToken = searchParams.get("access_token");
-    const refreshToken = searchParams.get("refresh_token");
+    const code = searchParams.get("code");
     const error = searchParams.get("error");
 
     if (error) {
@@ -23,15 +27,28 @@ function Cafe24CallbackInner() {
       return;
     }
 
-    if (!accessToken || !refreshToken) {
-      setErrorMsg("토큰을 받지 못했습니다. 다시 로그인해 주세요.");
+    if (!code) {
+      setErrorMsg("인증 코드를 받지 못했습니다. 다시 로그인해 주세요.");
       setStatus("error");
       return;
     }
 
-    tokenStore.set(accessToken, refreshToken);
-    queryClient.clear();
-    router.replace("/dashboard");
+    if (processed.has(code)) return;
+    processed.add(code);
+
+    // 일회용 code를 POST로 교환해 토큰을 받아온다 (토큰이 URL에 노출되지 않음).
+    api
+      .post("/auth/cafe24/exchange", { code })
+      .then((res) => {
+        const { access_token, refresh_token } = res.data;
+        tokenStore.set(access_token, refresh_token);
+        queryClient.clear();
+        router.replace("/dashboard");
+      })
+      .catch((e) => {
+        setErrorMsg(errorMessage(e, "로그인 처리에 실패했습니다. 다시 시도해 주세요."));
+        setStatus("error");
+      });
   }, [searchParams, router, queryClient]);
 
   if (status === "error") {

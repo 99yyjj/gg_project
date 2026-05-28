@@ -37,3 +37,10 @@ textarea::placeholder {
   color: #64748b; /* slate-500 */
   opacity: 1;
 }
+
+/* 인라인 편집(EditableText) — 값이 비면 안내 문구를 흐리게 보여준다 */
+[data-editable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: #94a3b8; /* slate-400 */
+  pointer-events: none;
+}

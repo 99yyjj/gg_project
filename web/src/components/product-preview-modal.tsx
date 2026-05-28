@@ -2,6 +2,7 @@
 
 import { X, ShoppingBag } from "lucide-react";
 import { ProductFormValues } from "@/components/product-form";
+import { sanitizeHtml } from "@/lib/sanitize";
 
 type Props = {
   values: ProductFormValues;
@@ -105,7 +106,7 @@ export default function ProductPreviewModal({
                   </h3>
                   <div
                     className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap"
-                    dangerouslySetInnerHTML={{ __html: values.description }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(values.description) }}
                   />
                 </div>
               ) : (

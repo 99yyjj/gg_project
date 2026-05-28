@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 import httpx
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,13 +22,15 @@ from app.core.security import (
 from app.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.auth import (
+    ExchangeRequest,
     LoginRequest,
     RefreshRequest,
     SignupRequest,
     TokenResponse,
     UserResponse,
+    UserUpdateRequest,
 )
-from app.services.cafe24_client import get_cafe24_client
+from app.services.oauth_code_store import consume_code, issue_code
 from app.services.user_service import (
     InvalidCredentialsError,
     UserAlreadyExistsError,
@@ -104,7 +106,21 @@ async def me(current: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.model_validate(current)
 
 
+@router.patch("/me", response_model=UserResponse, summary="내 정보 수정 (쇼핑몰 이름)")
+async def update_me(
+    request: UserUpdateRequest,
+    current: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    user = await UserService(db).update_profile(current, request.shop_name)
+    return UserResponse.model_validate(user)
+
+
 # ─────────── Cafe24 OAuth 2.0 ───────────
+
+# OAuth state를 임시 보관하는 httpOnly 쿠키 이름. 콜백에서 대조해 CSRF를 막는다.
+_STATE_COOKIE = "cafe24_oauth_state"
+
 
 @router.get(
     "/cafe24/login",
@@ -122,7 +138,18 @@ async def cafe24_login() -> RedirectResponse:
         "scope": settings.CAFE24_SCOPES,
     })
     auth_url = f"https://{settings.CAFE24_MALL_ID}.cafe24api.com/api/v2/oauth/authorize?{params}"
-    return RedirectResponse(url=auth_url, status_code=302)
+    response = RedirectResponse(url=auth_url, status_code=302)
+    # state를 httpOnly 쿠키에 저장 → 콜백에서 쿼리의 state와 대조(CSRF 방어).
+    # 콜백은 백엔드 same-origin이라 samesite=lax로 충분하며 로컬 http에서도 동작한다.
+    response.set_cookie(
+        _STATE_COOKIE,
+        state,
+        max_age=600,
+        httponly=True,
+        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+    )
+    return response
 
 
 @router.get(
@@ -132,10 +159,22 @@ async def cafe24_login() -> RedirectResponse:
     response_class=RedirectResponse,
 )
 async def cafe24_callback(
+    request: Request,
     code: str = Query(..., description="Cafe24가 발급한 authorization code"),
     state: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
+    # ⓪ state 검증 (CSRF 방어): login에서 심은 httpOnly 쿠키와 쿼리의 state를 대조.
+    cookie_state = request.cookies.get(_STATE_COOKIE, "")
+    if not state or not cookie_state or not secrets.compare_digest(state, cookie_state):
+        error_msg = "잘못된 요청입니다. 다시 로그인해 주세요."
+        invalid = RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error={error_msg}",
+            status_code=302,
+        )
+        invalid.delete_cookie(_STATE_COOKIE)
+        return invalid
+
     # ① authorization code → Cafe24 access_token 교환
     credentials = f"{settings.CAFE24_CLIENT_ID}:{settings.CAFE24_CLIENT_SECRET}"
     encoded = base64.b64encode(credentials.encode()).decode()
@@ -169,22 +208,45 @@ async def cafe24_callback(
     cafe24_refresh = token_data.get("refresh_token", "")
     mall_id = token_data.get("mall_id") or settings.CAFE24_MALL_ID
 
-    # ② Cafe24 토큰을 서버에 저장
-    get_cafe24_client().update_tokens(cafe24_access, cafe24_refresh)
+    # ② mall_id로 우리 DB 사용자 조회 또는 자동 생성
+    user_service = UserService(db)
+    user = await user_service.get_or_create_cafe24_user(mall_id)
 
-    # ③ mall_id로 우리 DB 사용자 조회 또는 자동 생성
-    user = await UserService(db).get_or_create_cafe24_user(mall_id)
+    # ③ Cafe24 토큰을 해당 유저 row에 저장 (멀티테넌트: 유저별 토큰 분리)
+    await user_service.set_cafe24_tokens(user, cafe24_access, cafe24_refresh, mall_id)
 
     # ④ 우리 서비스의 JWT 발급
     our_access = create_access_token(user.id, user.username)
     our_refresh = create_refresh_token(user.id)
 
-    # ⑤ 프론트엔드 콜백 페이지로 리다이렉트 (토큰을 쿼리 파라미터로 전달)
-    params = urlencode({
-        "access_token": our_access,
-        "refresh_token": our_refresh,
-    })
-    return RedirectResponse(
+    # ⑤ 토큰을 일회용 code 뒤에 숨겨 프론트로 리다이렉트.
+    #    토큰 자체는 URL에 싣지 않으므로 히스토리·Referer·로그에 남지 않는다.
+    #    프론트는 이 code를 POST /auth/cafe24/exchange로 교환해 토큰을 받아간다.
+    exchange_code = issue_code(our_access, our_refresh)
+    params = urlencode({"code": exchange_code})
+    response = RedirectResponse(
         url=f"{settings.FRONTEND_URL}/cafe24-callback?{params}",
         status_code=302,
+    )
+    response.delete_cookie(_STATE_COOKIE)
+    return response
+
+
+@router.post(
+    "/cafe24/exchange",
+    response_model=TokenResponse,
+    summary="Cafe24 일회용 code → JWT 교환",
+)
+async def cafe24_exchange(request: ExchangeRequest) -> TokenResponse:
+    tokens = consume_code(request.code)
+    if tokens is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="유효하지 않거나 만료된 코드입니다.",
+        )
+    access_token, refresh_token = tokens
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.JWT_ACCESS_EXPIRES_MIN * 60,
     )

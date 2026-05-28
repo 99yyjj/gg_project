@@ -17,13 +17,15 @@
 import logging
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.deps import get_current_user, get_db
+from app.deps import get_current_user, get_db, make_cafe24_client
 from app.models.user import User
 from app.schemas.product import (
+    AdditionalImage,
+    AdditionalImageListResponse,
+    AdditionalImageMutationResponse,
     ProductCreateRequest,
     ProductDeleteResponse,
     ProductListResponse,
@@ -37,20 +39,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/products", tags=["상품 관리"])
 
-
-def _http_error_to_http_exception(e: httpx.HTTPStatusError) -> HTTPException:
-    code = e.response.status_code
-    if code == 404:
-        return HTTPException(status_code=404, detail="해당 상품을 찾을 수 없습니다.")
-    if code in (401, 403):
-        return HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Cafe24 인증에 실패했습니다. /auth/cafe24/login 으로 OAuth 인증을 먼저 진행하세요.",
-        )
-    return HTTPException(
-        status_code=status.HTTP_502_BAD_GATEWAY,
-        detail=f"Cafe24 API 오류({code}): {e.response.text[:200]}",
-    )
+# Cafe24 API 오류(httpx.HTTPStatusError)와 권한 오류(PermissionError)는
+# app/core/errors.py의 전역 예외 핸들러가 일관되게 HTTP 응답으로 변환한다.
 
 
 async def _read_image_file(
@@ -78,10 +68,8 @@ async def list_products(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProductListResponse:
-    try:
-        items = await ProductService(db).list_products(current_user.id, limit, offset)
-    except httpx.HTTPStatusError as e:
-        raise _http_error_to_http_exception(e)
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    items = await service.list_products(current_user.id, limit, offset)
     return ProductListResponse(items=items, limit=limit, offset=offset)
 
 
@@ -91,10 +79,8 @@ async def get_product(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProductSummary:
-    try:
-        product = await ProductService(db).get_product(current_user.id, product_no)
-    except httpx.HTTPStatusError as e:
-        raise _http_error_to_http_exception(e)
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    product = await service.get_product(current_user.id, product_no)
     if not product:
         raise HTTPException(status_code=404, detail="해당 상품을 찾을 수 없습니다.")
     return product
@@ -115,10 +101,12 @@ async def create_product(
     product_name: str = Form(..., description="상품명"),
     price: float = Form(..., gt=0, description="판매가"),
     supply_price: Optional[float] = Form(None, description="공급가 (생략 시 판매가와 동일)"),
+    summary_description: Optional[str] = Form(None, description="간략 설명 (상품 상단 노출)"),
     description: str = Form(..., description="마케팅 상세 문구 (HTML 가능)"),
     category_no: Optional[int] = Form(None, description="카테고리 번호"),
     display: str = Form("T", description="진열 여부: T(진열) / F(미진열)"),
     selling: str = Form("T", description="판매 여부: T(판매) / F(판매안함)"),
+    tags: list[str] = Form(default=[], description="검색 키워드(태그) — 여러 개 반복 전송"),
     detail_image_file: Optional[UploadFile] = File(
         None, description="대표(상세) 이미지 파일 — 업로드 시 Cafe24 CDN에 저장됩니다"
     ),
@@ -135,18 +123,18 @@ async def create_product(
         product_name=product_name,
         price=price,
         supply_price=supply_price,
+        summary_description=summary_description,
         description=description,
         category_no=category_no,
         display=display,
         selling=selling,
+        tags=tags,
     )
 
-    try:
-        created, warnings = await ProductService(db).create_product(
-            current_user.id, request, detail_part, list_part
-        )
-    except httpx.HTTPStatusError as e:
-        raise _http_error_to_http_exception(e)
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    created, warnings = await service.create_product(
+        current_user.id, request, detail_part, list_part
+    )
 
     return ProductMutationResponse(
         product=created,
@@ -169,10 +157,12 @@ async def update_product(
     product_name: Optional[str] = Form(None, description="상품명"),
     price: Optional[float] = Form(None, gt=0, description="판매가"),
     supply_price: Optional[float] = Form(None, gt=0, description="공급가"),
+    summary_description: Optional[str] = Form(None, description="간략 설명 (상품 상단 노출)"),
     description: Optional[str] = Form(None, description="마케팅 상세 문구 (HTML 가능)"),
     category_no: Optional[int] = Form(None, description="카테고리 번호"),
     display: Optional[str] = Form(None, description="진열 여부: T / F"),
     selling: Optional[str] = Form(None, description="판매 여부: T / F"),
+    tags: Optional[list[str]] = Form(None, description="검색 키워드(태그) — 여러 개 반복 전송"),
     delete_detail_image: bool = Form(False, description="대표(상세) 이미지 삭제 여부"),
     delete_list_image: bool = Form(False, description="목록 이미지 삭제 여부"),
     detail_image_file: Optional[UploadFile] = File(
@@ -191,22 +181,20 @@ async def update_product(
         product_name=product_name,
         price=price,
         supply_price=supply_price,
+        summary_description=summary_description,
         description=description,
         category_no=category_no,
         display=display,
         selling=selling,
+        tags=tags,
         delete_detail_image=delete_detail_image,
         delete_list_image=delete_list_image,
     )
 
-    try:
-        updated, warnings = await ProductService(db).update_product(
-            current_user.id, product_no, request, detail_part, list_part
-        )
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except httpx.HTTPStatusError as e:
-        raise _http_error_to_http_exception(e)
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    updated, warnings = await service.update_product(
+        current_user.id, product_no, request, detail_part, list_part
+    )
 
     return ProductMutationResponse(
         product=updated,
@@ -225,14 +213,119 @@ async def delete_product(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProductDeleteResponse:
-    try:
-        await ProductService(db).delete_product(current_user.id, product_no)
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except httpx.HTTPStatusError as e:
-        raise _http_error_to_http_exception(e)
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    await service.delete_product(current_user.id, product_no)
 
     return ProductDeleteResponse(
         product_no=product_no,
         message=f"product_no={product_no} 상품이 삭제되었습니다.",
+    )
+
+
+# ─────────── 추가(상세) 이미지 ───────────
+# Cafe24 추가이미지는 안정적인 개별 번호를 주지 않으므로, 응답 URL 목록에
+# 1부터 순번(additional_image_no)을 매겨 수정/삭제 시 위치 지정에 사용한다.
+
+
+def _urls_to_additional_images(urls: list[str]) -> list[AdditionalImage]:
+    return [
+        AdditionalImage(additional_image_no=i + 1, image_url=u)
+        for i, u in enumerate(urls)
+    ]
+
+
+@router.get(
+    "/{product_no}/additionalimages",
+    response_model=AdditionalImageListResponse,
+    summary="상품 추가 이미지 목록",
+)
+async def list_additional_images(
+    product_no: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdditionalImageListResponse:
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    urls = await service.list_additional_images(current_user.id, product_no)
+    return AdditionalImageListResponse(
+        product_no=product_no, images=_urls_to_additional_images(urls)
+    )
+
+
+@router.post(
+    "/{product_no}/additionalimages",
+    response_model=AdditionalImageMutationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="상품 추가 이미지 등록 (다중)",
+)
+async def create_additional_images(
+    product_no: int,
+    files: list[UploadFile] = File(..., description="추가 이미지 파일 (다중)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdditionalImageMutationResponse:
+    images: list[bytes] = []
+    for idx, f in enumerate(files):
+        part = await _read_image_file(f, f"files[{idx}]")
+        if part is not None:
+            images.append(part[0])
+    if not images:
+        raise HTTPException(status_code=400, detail="업로드할 이미지가 없습니다.")
+
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    urls = await service.add_additional_images(current_user.id, product_no, images)
+    return AdditionalImageMutationResponse(
+        product_no=product_no,
+        images=_urls_to_additional_images(urls),
+        message=f"추가 이미지 {len(images)}장을 등록했습니다.",
+    )
+
+
+@router.put(
+    "/{product_no}/additionalimages/{additional_image_no}",
+    response_model=AdditionalImageMutationResponse,
+    summary="상품 추가 이미지 수정 (단일)",
+)
+async def update_additional_image(
+    product_no: int,
+    additional_image_no: int,
+    file: UploadFile = File(..., description="교체할 추가 이미지 파일"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdditionalImageMutationResponse:
+    part = await _read_image_file(file, "file")
+    if part is None:
+        raise HTTPException(status_code=400, detail="이미지 파일이 필요합니다.")
+
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    await service.update_additional_image(
+        current_user.id, product_no, additional_image_no, part[0]
+    )
+    urls = await service.list_additional_images(current_user.id, product_no)
+    return AdditionalImageMutationResponse(
+        product_no=product_no,
+        images=_urls_to_additional_images(urls),
+        message="추가 이미지를 수정했습니다.",
+    )
+
+
+@router.delete(
+    "/{product_no}/additionalimages/{additional_image_no}",
+    response_model=AdditionalImageMutationResponse,
+    summary="상품 추가 이미지 삭제",
+)
+async def delete_additional_image(
+    product_no: int,
+    additional_image_no: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AdditionalImageMutationResponse:
+    service = ProductService(db, make_cafe24_client(current_user, db))
+    await service.delete_additional_image(
+        current_user.id, product_no, additional_image_no
+    )
+    urls = await service.list_additional_images(current_user.id, product_no)
+    return AdditionalImageMutationResponse(
+        product_no=product_no,
+        images=_urls_to_additional_images(urls),
+        message="추가 이미지를 삭제했습니다.",
     )

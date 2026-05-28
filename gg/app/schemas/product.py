@@ -16,9 +16,11 @@ class ProductSummary(BaseModel):
     product_code: Optional[str] = None
     product_name: str
     price: Optional[float] = None
+    summary_description: Optional[str] = None
     description: Optional[str] = None
     detail_image: Optional[str] = None
     list_image: Optional[str] = None
+    additional_images: list[str] = Field(default_factory=list)
     display: Optional[str] = None
     selling: Optional[str] = None
     category_no: Optional[int] = None
@@ -35,10 +37,12 @@ class ProductCreateRequest(BaseModel):
     product_name: str = Field(..., description="상품명")
     price: float = Field(..., gt=0, description="판매가")
     supply_price: Optional[float] = Field(None, description="공급가 (생략 시 판매가와 동일)")
+    summary_description: Optional[str] = Field(None, description="간략 설명 (상품 상단 노출)")
     description: str = Field(..., description="마케팅 상세 문구 (HTML 가능)")
     category_no: Optional[int] = Field(None, description="카테고리 번호")
     display: str = Field("T", description="진열: T/F")
     selling: str = Field("T", description="판매: T/F")
+    tags: Optional[list[str]] = Field(None, description="검색 키워드(태그) 목록")
 
 
 class ProductUpdateRequest(BaseModel):
@@ -46,10 +50,12 @@ class ProductUpdateRequest(BaseModel):
     product_name: Optional[str] = None
     price: Optional[float] = Field(None, gt=0)
     supply_price: Optional[float] = Field(None, gt=0)
+    summary_description: Optional[str] = None
     description: Optional[str] = None
     category_no: Optional[int] = None
     display: Optional[str] = None
     selling: Optional[str] = None
+    tags: Optional[list[str]] = Field(None, description="검색 키워드(태그) 목록")
     delete_detail_image: bool = Field(False, description="대표(상세) 이미지 삭제 여부")
     delete_list_image: bool = Field(False, description="목록 이미지 삭제 여부")
 
@@ -66,4 +72,26 @@ class ProductMutationResponse(BaseModel):
 
 class ProductDeleteResponse(BaseModel):
     product_no: int
+    message: str
+
+
+# ─────────── 추가(상세) 이미지 ───────────
+
+
+class AdditionalImage(BaseModel):
+    """상품 추가 이미지 한 장."""
+    additional_image_no: Optional[int] = Field(
+        None, description="Cafe24가 부여한 추가 이미지 번호 (수정/삭제 시 사용)"
+    )
+    image_url: str = Field(..., description="이미지 URL")
+
+
+class AdditionalImageListResponse(BaseModel):
+    product_no: int
+    images: list[AdditionalImage] = Field(default_factory=list)
+
+
+class AdditionalImageMutationResponse(BaseModel):
+    product_no: int
+    images: list[AdditionalImage] = Field(default_factory=list)
     message: str
