@@ -1,0 +1,47 @@
+# ───────── 환경변수 / 시크릿 (절대 커밋 금지) ─────────
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# ───────── Python (백엔드 gg) ─────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 사용자 업로드 파일
+gg/uploads/
+uploads/
+
+# 로컬 DB / 로그
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# ───────── Node / Next.js (프론트 web) ─────────
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# ───────── 개인/임시 파일 (커밋 제외) ─────────
+KakaoTalk_Chat_*.html
+review sample.html
+sales.test.html
+
+# ───────── OS / 에디터 ─────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

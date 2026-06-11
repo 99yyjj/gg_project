@@ -148,3 +148,47 @@ export type ReviewUpdateRequest = {
 export type RegenerateReplyResponse = {
   draft_reply: string;
 };
+
+// ─────────────── 주문 / 판매성과 (카페24 읽기 전용) ───────────────
+
+export type OrderSummary = {
+  order_no: string;
+  date: string;
+  name: string;
+  phone: string;
+  address: string;
+  product: string;
+  amount: number;
+  status: string;
+  tracking: string;
+};
+
+export type OrderListResponse = {
+  orders: OrderSummary[];
+  total: number;
+};
+
+export type SalesMetric = {
+  label: string;
+  amount: number;
+  count: number;
+  avg: number;
+};
+
+export type ProductRank = {
+  name: string;
+  count: number;
+};
+
+export type ProductStat = {
+  name: string;
+  product_no: string;
+  amount: number;
+  count: number;
+};
+
+export type SalesSummaryResponse = {
+  summary: SalesMetric;
+  ranking: ProductRank[];
+  period_stats: ProductStat[];
+};

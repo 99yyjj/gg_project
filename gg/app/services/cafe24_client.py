@@ -361,6 +361,93 @@ class Cafe24Client:
         logger.info(f"카테고리 {len(categories)}개 수신")
         return categories
 
+    # =========================================================
+    # 주문 조회 (mall.read_order 권한 필요)
+    # =========================================================
+
+    async def count_orders(
+        self,
+        start_date: str,
+        end_date: str,
+        order_status: str | None = None,
+    ) -> int:
+        """
+        기간 내 주문 건수를 조회한다.
+
+        Cafe24 API: GET /orders/count
+        주문 목록 페이지네이션의 전체 개수를 구할 때 사용한다.
+
+        Args:
+            start_date / end_date: 조회 기간 (YYYY-MM-DD). 카페24는 기간 지정 필수.
+            order_status: 특정 주문상태 코드로 필터 (예: N00, N10...). None이면 전체.
+        """
+        params: dict[str, Any] = {
+            "mall_id": self.mall_id,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        if order_status:
+            params["order_status"] = order_status
+
+        response = await self._request_with_auto_refresh(
+            method="get",
+            url=f"{self.base_url}/orders/count",
+            params=params,
+            timeout=15.0,
+        )
+        return int(response.json().get("count", 0))
+
+    async def get_orders(
+        self,
+        start_date: str,
+        end_date: str,
+        order_status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """
+        기간 내 주문 목록을 조회한다.
+
+        Cafe24 API: GET /orders
+        한 번에 최대 1000개. embed로 주문자(buyer)·수령자(receivers)·품목(items)을
+        함께 받아 별도 호출 없이 화면에 필요한 정보를 모은다.
+
+        Args:
+            start_date / end_date: 조회 기간 (YYYY-MM-DD). 카페24는 기간 지정 필수.
+            order_status: 주문상태 코드 필터. None이면 전체.
+            limit: 한 번에 가져올 주문 수 (최대 1000, Cafe24 제한).
+            offset: 건너뛸 주문 수 (페이지네이션용).
+
+        Returns:
+            주문 딕셔너리의 리스트.
+        """
+        params: dict[str, Any] = {
+            "mall_id": self.mall_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "limit": limit,
+            "offset": offset,
+            "embed": "items,buyer,receivers",
+        }
+        if order_status:
+            params["order_status"] = order_status
+
+        logger.info(
+            f"Cafe24 주문 목록 요청: {start_date}~{end_date}, "
+            f"limit={limit}, offset={offset}, status={order_status}"
+        )
+
+        response = await self._request_with_auto_refresh(
+            method="get",
+            url=f"{self.base_url}/orders",
+            params=params,
+            timeout=30.0,
+        )
+
+        orders = response.json().get("orders", [])
+        logger.info(f"Cafe24에서 주문 {len(orders)}건 수신")
+        return orders
+
     async def create_product(
         self,
         payload: dict[str, Any],

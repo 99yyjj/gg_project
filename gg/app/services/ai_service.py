@@ -211,6 +211,103 @@ class AIService:
 }}"""
 
     # ─────────────────────────────────────────────────────
+    # 예상 FAQ 자동 생성 (Gemini)
+    # ─────────────────────────────────────────────────────
+
+    async def generate_product_faq(
+        self,
+        product_name: str,
+        description_text: str | None,
+    ) -> list[dict[str, str]]:
+        """
+        상품명과 상세 설명을 바탕으로 소비자가 가장 궁금해할 FAQ 3가지를
+        [{"q": ..., "a": ...}, ...] 형태로 생성한다.
+
+        USE_MOCK_AI 또는 API 실패 시에는 안정적인 기본 템플릿을 반환한다.
+        """
+        if self.use_mock:
+            logger.info(f"[MOCK] FAQ 생성: '{product_name}'")
+            return self._fallback_faq(product_name)
+
+        try:
+            logger.info(f"[REAL] Gemini FAQ 생성: '{product_name}'")
+            return await self._real_generate_faq(product_name, description_text)
+        except Exception as e:
+            logger.warning(f"Gemini FAQ 생성 실패 ({product_name}): {e}. 기본 템플릿 사용.")
+            return self._fallback_faq(product_name)
+
+    async def _real_generate_faq(
+        self,
+        product_name: str,
+        description_text: str | None,
+    ) -> list[dict[str, str]]:
+        """Gemini를 호출해 FAQ 3가지를 생성하고 JSON 배열로 파싱한다."""
+        from google.genai import types
+
+        desc_str = description_text if description_text else "없음"
+        prompt = f"""당신은 한국 쇼핑몰의 전문 CS 담당자입니다.
+아래 상품 정보를 바탕으로 소비자가 가장 궁금해할 '질문과 답변(FAQ)' 3가지를 작성하세요.
+상세페이지 하단에 들어갈 내용이니 친절하고 신뢰감 있는 문체로 작성하세요.
+
+[상품 정보]
+- 상품명: {product_name}
+- 상세설명 초안: {desc_str}
+
+[출력 형식] 반드시 아래 JSON 배열 형식으로만 답변하세요. 다른 텍스트는 포함하지 마세요:
+[
+  {{"q": "질문내용", "a": "답변내용"}},
+  {{"q": "질문내용", "a": "답변내용"}},
+  {{"q": "질문내용", "a": "답변내용"}}
+]"""
+
+        response = await self._genai_client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(max_output_tokens=self.max_tokens),
+        )
+
+        raw_response = response.text
+        if not raw_response:
+            raise ValueError("Gemini FAQ 응답이 비어있습니다. (안전 필터 차단 가능성)")
+
+        # 응답에서 JSON 배열 구간만 추출해 파싱
+        start = raw_response.find("[")
+        end = raw_response.rfind("]") + 1
+        if start == -1 or end == 0:
+            raise ValueError("응답에서 JSON 배열을 찾을 수 없음")
+
+        parsed = json.loads(raw_response[start:end])
+        if not isinstance(parsed, list) or not parsed:
+            raise ValueError("FAQ 파싱 결과가 비어있는 배열이 아님")
+
+        # q/a 키만 정규화해서 반환 (예상치 못한 형식 방어)
+        faqs = [
+            {"q": str(item["q"]), "a": str(item["a"])}
+            for item in parsed
+            if isinstance(item, dict) and "q" in item and "a" in item
+        ]
+        if not faqs:
+            raise ValueError("유효한 q/a 항목이 없음")
+        return faqs
+
+    def _fallback_faq(self, product_name: str) -> list[dict[str, str]]:
+        """API 없이도 동작하는 안정적인 기본 FAQ 템플릿."""
+        return [
+            {
+                "q": f"[{product_name}]의 세탁 및 관리 방법이 궁금해요.",
+                "a": "제품의 원형 유지를 위해 첫 1~2회 세탁은 드라이클리닝을 권장합니다. 홈클리닝 시에는 찬물에 중성세제를 사용하여 단독 손세탁 해주시면 변형 없이 오래 입으실 수 있습니다.",
+            },
+            {
+                "q": "배송은 얼마나 걸리나요?",
+                "a": "본 상품은 주문 접수 후 영업일 기준 2~4일 이내에 안전하게 발송됩니다. 리오더(재제작) 진행 시 일주일 정도 소요될 수 있으며, 이 경우 개별 안내해 드립니다.",
+            },
+            {
+                "q": "사이즈 교환이나 반품이 가능한가요?",
+                "a": "네, 가능합니다! 상품 수령 후 7일 이내에 고객센터나 마이페이지를 통해 접수해 주시면 처리를 도와드립니다. 단, 착용 흔적이나 라벨 훼손이 없는 상태여야 합니다.",
+            },
+        ]
+
+    # ─────────────────────────────────────────────────────
     # 상품 사진 분석 (Gemini 멀티모달)
     # ─────────────────────────────────────────────────────
 

@@ -8,6 +8,7 @@ import {
   AIImageAnalysisResponse,
   AIMarketingCopyRequest,
   AIMarketingCopyResponse,
+  OrderListResponse,
   ProductCreateRequest,
   ProductListResponse,
   ProductMutationResponse,
@@ -19,6 +20,7 @@ import {
   ReviewFilter,
   ReviewListResponse,
   ReviewUpdateRequest,
+  SalesSummaryResponse,
   TokenResponse,
   UserResponse,
 } from "./types";
@@ -416,6 +418,30 @@ export function useRegenerateReply() {
       const { data } = await api.post<RegenerateReplyResponse>(
         `/reviews/${id}/regenerate-reply`
       );
+      return data;
+    },
+  });
+}
+
+// ─────────────── 주문 / 판매성과 (카페24 읽기 전용) ───────────────
+
+export function useOrders() {
+  return useQuery({
+    queryKey: ["orders"],
+    queryFn: async (): Promise<OrderListResponse> => {
+      const { data } = await api.get<OrderListResponse>("/orders/");
+      return data;
+    },
+  });
+}
+
+export function useSalesSummary(period: "month" | "total") {
+  return useQuery({
+    queryKey: ["sales-summary", period],
+    queryFn: async (): Promise<SalesSummaryResponse> => {
+      const { data } = await api.get<SalesSummaryResponse>("/orders/sales-summary", {
+        params: { period },
+      });
       return data;
     },
   });

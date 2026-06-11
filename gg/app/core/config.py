@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     CAFE24_ACCESS_TOKEN: str = ""
     CAFE24_REFRESH_TOKEN: str = ""
     CAFE24_REDIRECT_URI: str = "http://localhost:8000/auth/cafe24/callback"
-    CAFE24_SCOPES: str = "mall.read_product,mall.write_product,mall.read_category,mall.write_category"
+    CAFE24_SCOPES: str = "mall.read_product,mall.write_product,mall.read_category,mall.write_category,mall.read_order"
     FRONTEND_URL: str = "http://localhost:3000"
 
     # OAuth state 쿠키에 Secure 속성을 붙일지 여부.

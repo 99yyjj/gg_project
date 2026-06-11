@@ -8,13 +8,25 @@ GG FastAPI 앱 엔트리포인트.
 """
 
 import logging
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.errors import httpx_status_error_handler, permission_error_handler
-from app.routers import ai, auth, categories, health, products, reviews, shop, shop_template
+from app.routers import (
+    ai,
+    auth,
+    categories,
+    health,
+    orders,
+    products,
+    reviews,
+    shop,
+    shop_template,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,9 +60,14 @@ app.add_middleware(
 app.add_exception_handler(httpx.HTTPStatusError, httpx_status_error_handler)
 app.add_exception_handler(PermissionError, permission_error_handler)
 
+uploads_dir = Path(__file__).parent.parent / "uploads"
+uploads_dir.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(products.router)
+app.include_router(orders.router)
 app.include_router(ai.router)
 app.include_router(categories.router)
 app.include_router(shop.router)

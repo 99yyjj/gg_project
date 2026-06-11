@@ -4,6 +4,7 @@
 
 import base64
 import logging
+import re
 import secrets
 from urllib.parse import urlencode
 
@@ -120,6 +121,19 @@ async def update_me(
 
 # OAuth state를 임시 보관하는 httpOnly 쿠키 이름. 콜백에서 대조해 CSRF를 막는다.
 _STATE_COOKIE = "cafe24_oauth_state"
+# 로그인 시작 시 받은 mall_id를 콜백(토큰 교환)까지 전달하는 httpOnly 쿠키.
+# 공개앱이라 사용자마다 다른 몰로 로그인하므로, 어느 몰에 토큰을 교환할지 기억해야 한다.
+_MALL_COOKIE = "cafe24_oauth_mall"
+
+# mall_id는 그대로 URL 서브도메인({mall_id}.cafe24api.com)에 들어가므로, 임의의
+# 도메인/경로 주입(오픈 리다이렉트·SSRF)을 막기 위해 소문자·숫자·하이픈만 허용한다.
+_MALL_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,49}$")
+
+
+def _normalize_mall_id(raw: str) -> str | None:
+    """mall_id를 정규화·검증한다. 유효하면 정규화된 값, 아니면 None."""
+    mall_id = raw.strip().lower()
+    return mall_id if _MALL_ID_RE.match(mall_id) else None
 
 
 @router.get(
@@ -128,7 +142,24 @@ _STATE_COOKIE = "cafe24_oauth_state"
     description="Cafe24 로그인 페이지로 리다이렉트합니다. 브라우저에서 직접 접속하세요.",
     response_class=RedirectResponse,
 )
-async def cafe24_login() -> RedirectResponse:
+async def cafe24_login(
+    mall_id: str | None = Query(
+        None,
+        description="로그인할 카페24 쇼핑몰 ID (예: mymall). 생략 시 서버 설정값(CAFE24_MALL_ID) 사용",
+    ),
+) -> RedirectResponse:
+    # 쇼핑몰 ID를 입력받지 않을 때는 운영자가 .env에 설정한 CAFE24_MALL_ID로 OAuth를
+    # 시작한다(단일 운영자/데모 시나리오). 쿼리로 넘어오면 그 값을 우선한다.
+    raw_mall_id = mall_id or settings.CAFE24_MALL_ID
+    # 검증 실패 시 인증 시작 자체를 막고 로그인 화면으로 돌려보낸다.
+    normalized = _normalize_mall_id(raw_mall_id)
+    if normalized is None:
+        error_msg = "올바른 카페24 쇼핑몰 ID가 아닙니다."
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error={error_msg}",
+            status_code=302,
+        )
+
     state = secrets.token_urlsafe(16)
     params = urlencode({
         "response_type": "code",
@@ -137,18 +168,19 @@ async def cafe24_login() -> RedirectResponse:
         "redirect_uri": settings.CAFE24_REDIRECT_URI,
         "scope": settings.CAFE24_SCOPES,
     })
-    auth_url = f"https://{settings.CAFE24_MALL_ID}.cafe24api.com/api/v2/oauth/authorize?{params}"
+    auth_url = f"https://{normalized}.cafe24api.com/api/v2/oauth/authorize?{params}"
     response = RedirectResponse(url=auth_url, status_code=302)
     # state를 httpOnly 쿠키에 저장 → 콜백에서 쿼리의 state와 대조(CSRF 방어).
     # 콜백은 백엔드 same-origin이라 samesite=lax로 충분하며 로컬 http에서도 동작한다.
-    response.set_cookie(
-        _STATE_COOKIE,
-        state,
-        max_age=600,
-        httponly=True,
-        samesite="lax",
-        secure=settings.COOKIE_SECURE,
-    )
+    cookie_kwargs = {
+        "max_age": 600,
+        "httponly": True,
+        "samesite": "lax",
+        "secure": settings.COOKIE_SECURE,
+    }
+    response.set_cookie(_STATE_COOKIE, state, **cookie_kwargs)
+    # 콜백의 토큰 교환은 같은 mall_id로 해야 하므로 함께 쿠키에 보관한다.
+    response.set_cookie(_MALL_COOKIE, normalized, **cookie_kwargs)
     return response
 
 
@@ -164,21 +196,30 @@ async def cafe24_callback(
     state: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
+    # 에러로 로그인 화면에 되돌릴 때 OAuth 임시 쿠키를 모두 정리하는 헬퍼.
+    def _login_error(message: str) -> RedirectResponse:
+        redirect = RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error={message}",
+            status_code=302,
+        )
+        redirect.delete_cookie(_STATE_COOKIE)
+        redirect.delete_cookie(_MALL_COOKIE)
+        return redirect
+
     # ⓪ state 검증 (CSRF 방어): login에서 심은 httpOnly 쿠키와 쿼리의 state를 대조.
     cookie_state = request.cookies.get(_STATE_COOKIE, "")
     if not state or not cookie_state or not secrets.compare_digest(state, cookie_state):
-        error_msg = "잘못된 요청입니다. 다시 로그인해 주세요."
-        invalid = RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/login?error={error_msg}",
-            status_code=302,
-        )
-        invalid.delete_cookie(_STATE_COOKIE)
-        return invalid
+        return _login_error("잘못된 요청입니다. 다시 로그인해 주세요.")
+
+    # ⓪-2 어느 몰로 토큰을 교환할지: login에서 심은 mall_id 쿠키를 읽어 재검증.
+    mall_id = _normalize_mall_id(request.cookies.get(_MALL_COOKIE, ""))
+    if mall_id is None:
+        return _login_error("쇼핑몰 정보가 유실되었습니다. 다시 로그인해 주세요.")
 
     # ① authorization code → Cafe24 access_token 교환
     credentials = f"{settings.CAFE24_CLIENT_ID}:{settings.CAFE24_CLIENT_SECRET}"
     encoded = base64.b64encode(credentials.encode()).decode()
-    token_url = f"https://{settings.CAFE24_MALL_ID}.cafe24api.com/api/v2/oauth/token"
+    token_url = f"https://{mall_id}.cafe24api.com/api/v2/oauth/token"
 
     try:
         async with httpx.AsyncClient() as client:
@@ -197,16 +238,13 @@ async def cafe24_callback(
             )
             resp.raise_for_status()
     except httpx.HTTPStatusError as e:
-        error_msg = f"Cafe24 인증 실패: {e.response.status_code}"
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/login?error={error_msg}",
-            status_code=302,
-        )
+        return _login_error(f"Cafe24 인증 실패: {e.response.status_code}")
 
     token_data = resp.json()
     cafe24_access = token_data.get("access_token", "")
     cafe24_refresh = token_data.get("refresh_token", "")
-    mall_id = token_data.get("mall_id") or settings.CAFE24_MALL_ID
+    # 응답에 mall_id가 있으면 그것을 신뢰, 없으면 로그인 시작 시의 mall_id를 사용.
+    mall_id = token_data.get("mall_id") or mall_id
 
     # ② mall_id로 우리 DB 사용자 조회 또는 자동 생성
     user_service = UserService(db)
@@ -229,6 +267,7 @@ async def cafe24_callback(
         status_code=302,
     )
     response.delete_cookie(_STATE_COOKIE)
+    response.delete_cookie(_MALL_COOKIE)
     return response
 
 
