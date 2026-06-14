@@ -8,8 +8,9 @@ import axios, {
 } from "axios";
 import { tokenStore } from "./auth-storage";
 
+// 백엔드 API는 모두 /api prefix 아래에 있다(프론트 /shop 페이지와의 경로 충돌 방지).
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+  process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api";
 
 export const api = axios.create({
   baseURL: BASE_URL,

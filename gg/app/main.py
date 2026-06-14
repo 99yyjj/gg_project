@@ -62,14 +62,26 @@ app.add_exception_handler(PermissionError, permission_error_handler)
 
 uploads_dir = Path(__file__).parent.parent / "uploads"
 uploads_dir.mkdir(exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+app.mount("/api/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
-app.include_router(health.router)
-app.include_router(auth.router)
-app.include_router(products.router)
-app.include_router(orders.router)
-app.include_router(ai.router)
-app.include_router(categories.router)
-app.include_router(shop.router)
-app.include_router(shop_template.router)
-app.include_router(reviews.router)
+# 프론트(Next.js)의 /shop/[username] 페이지와 백엔드 API 경로가 겹치지 않도록,
+# 모든 백엔드 API는 /api prefix 아래로 노출한다. nginx가 한 도메인에서
+#   /api  → 백엔드(8000)
+#   /auth → 백엔드(8000)   (Cafe24 OAuth 전용 경로)
+#   그 외 → 프론트(3000)
+# 로 라우팅한다.
+API_PREFIX = "/api"
+
+app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(auth.router, prefix=API_PREFIX)
+app.include_router(products.router, prefix=API_PREFIX)
+app.include_router(orders.router, prefix=API_PREFIX)
+app.include_router(ai.router, prefix=API_PREFIX)
+app.include_router(categories.router, prefix=API_PREFIX)
+app.include_router(shop.router, prefix=API_PREFIX)
+app.include_router(shop_template.router, prefix=API_PREFIX)
+app.include_router(reviews.router, prefix=API_PREFIX)
+
+# Cafe24 OAuth 경로(/auth/cafe24/*)는 카페24에 등록된 redirect_uri와 묶여 있어
+# /api prefix 없이 그대로 노출한다.
+app.include_router(auth.oauth_router)

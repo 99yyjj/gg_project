@@ -6,10 +6,11 @@ import { ExternalLink, Link2 } from "lucide-react";
 import { useMe } from "@/lib/queries";
 
 // Cafe24 OAuth는 콜백(공개 HTTPS 도메인)과 같은 출처에서 시작해야 state 쿠키가
-// 콜백까지 전달된다. OAUTH 전용 base를 쓰고, 미설정 시 API base로 폴백한다.
+// 콜백까지 전달된다. OAuth 경로(/auth/cafe24/*)는 /api prefix가 없으므로 일반 API
+// base와 분리한다. (미설정 시 API base에서 /api를 떼어 폴백)
 const OAUTH_BASE =
   process.env.NEXT_PUBLIC_OAUTH_BASE ||
-  process.env.NEXT_PUBLIC_API_BASE ||
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/api\/?$/, "") ||
   "http://127.0.0.1:8000";
 
 export default function SettingsPage() {

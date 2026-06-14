@@ -1,0 +1,50 @@
+# GG 프로젝트 의존 패키지 목록
+# 설치 방법: pip install -r requirements.txt
+
+# --- 웹 프레임워크 ---
+fastapi
+uvicorn[standard]
+
+# --- 데이터베이스 ---
+sqlalchemy
+asyncpg>=0.29.0            # PostgreSQL 비동기 드라이버
+alembic>=1.13.0            # DB 스키마 마이그레이션 도구
+greenlet
+
+# --- 설정 관리 ---
+pydantic-settings
+
+# --- HTTP 클라이언트 ---
+httpx
+
+# --- AI 서비스 ---
+google-genai>=1.0.0         # Google Gemini API 공식 Python SDK (신버전)
+
+# --- 인증/보안 ---
+bcrypt>=4.2.0               # 비밀번호 해시
+pyjwt>=2.9.0                # JWT 발급/검증
+python-multipart>=0.0.12    # multipart/form-data (이미지 업로드)
+email-validator>=2.0        # Pydantic EmailStr 검증
+
+# --- 전이 의존성 (자동 설치됨) ---
+annotated-types
+anyio
+certifi
+click
+distro
+h11
+httpcore
+httptools
+idna
+jiter
+pydantic
+pydantic-core
+python-dotenv
+PyYAML
+sniffio
+starlette
+typing-extensions
+typing-inspection
+uvloop
+watchfiles
+websockets

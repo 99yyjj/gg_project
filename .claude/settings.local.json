@@ -116,7 +116,14 @@
       "Bash(echo \"\\(exit: $?\\)\")",
       "Bash(git check-ignore *)",
       "Bash(git add *)",
-      "Bash(git commit -q -m ' *)"
+      "Bash(git commit -q -m ' *)",
+      "Bash(.venv/bin/python -c \"import httpx; c=httpx.Client\\(base_url='http://test/api'\\); print\\(c._merge_url\\('/products/'\\).raw_path\\); c2=httpx.Client\\(base_url='http://test/api/'\\); print\\(c2._merge_url\\('/products/'\\).raw_path\\)\")",
+      "Bash(grep -v \"^\\\\s*$\")",
+      "Bash(../.venv/bin/python -m pytest -q)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(echo \"BUILD_EXIT=$?\")",
+      "Bash(rm -rf /home/ubuntu/.npm/_cacache /home/ubuntu/.npm/_logs)",
+      "Bash(rm -rf /home/ubuntu/.cache/*)"
     ]
   }
 }

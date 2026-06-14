@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["인증"])
 
+# Cafe24 OAuth 전용 라우터.
+# 이 경로들은 카페24 개발자센터에 등록된 redirect_uri(고정 URL)와 직접 묶여 있어
+# /api prefix 아래로 옮기지 않고 항상 /auth/cafe24/* 로 노출한다. (main.py 참고)
+oauth_router = APIRouter(prefix="/auth/cafe24", tags=["Cafe24 OAuth"])
+
 
 def _build_token_response(user: User) -> TokenResponse:
     return TokenResponse(
@@ -136,8 +141,8 @@ def _normalize_mall_id(raw: str) -> str | None:
     return mall_id if _MALL_ID_RE.match(mall_id) else None
 
 
-@router.get(
-    "/cafe24/login",
+@oauth_router.get(
+    "/login",
     summary="Cafe24 OAuth 2.0 로그인 시작",
     description="Cafe24 로그인 페이지로 리다이렉트합니다. 브라우저에서 직접 접속하세요.",
     response_class=RedirectResponse,
@@ -184,8 +189,8 @@ async def cafe24_login(
     return response
 
 
-@router.get(
-    "/cafe24/callback",
+@oauth_router.get(
+    "/callback",
     summary="Cafe24 OAuth 2.0 콜백 처리",
     description="Cafe24가 로그인 완료 후 자동 호출하는 엔드포인트입니다. 직접 호출하지 마세요.",
     response_class=RedirectResponse,
@@ -271,8 +276,8 @@ async def cafe24_callback(
     return response
 
 
-@router.post(
-    "/cafe24/exchange",
+@oauth_router.post(
+    "/exchange",
     response_model=TokenResponse,
     summary="Cafe24 일회용 code → JWT 교환",
 )

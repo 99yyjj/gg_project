@@ -3,8 +3,16 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { tokenStore } from "@/lib/auth-storage";
-import { api, errorMessage } from "@/lib/api";
+import { errorMessage } from "@/lib/api";
+
+// Cafe24 OAuth 경로(/auth/cafe24/*)는 /api prefix 없이 백엔드 도메인에 직접 있다.
+// 일반 API base(NEXT_PUBLIC_API_BASE, /api 포함)가 아니라 OAUTH base를 쓴다.
+const OAUTH_BASE =
+  process.env.NEXT_PUBLIC_OAUTH_BASE ||
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/api\/?$/, "") ||
+  "http://127.0.0.1:8000";
 
 // React 19 StrictMode는 effect를 두 번 실행한다. 일회용 code는 두 번째
 // 교환에서 400이 나므로, 이미 처리한 code는 모듈 스코프에서 한 번만 보낸다.
@@ -37,8 +45,8 @@ function Cafe24CallbackInner() {
     processed.add(code);
 
     // 일회용 code를 POST로 교환해 토큰을 받아온다 (토큰이 URL에 노출되지 않음).
-    api
-      .post("/auth/cafe24/exchange", { code })
+    axios
+      .post(`${OAUTH_BASE}/auth/cafe24/exchange`, { code })
       .then((res) => {
         const { access_token, refresh_token } = res.data;
         tokenStore.set(access_token, refresh_token);

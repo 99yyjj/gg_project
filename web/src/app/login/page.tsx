@@ -1,11 +1,11 @@
 "use client";
 
 // Cafe24 OAuth는 카페24 콜백(공개 HTTPS 도메인)과 같은 출처에서 시작해야
-// state 쿠키가 콜백까지 전달된다. 일반 API base와 분리해 OAUTH 전용 base를 쓴다.
-// (미설정 시 API base로 폴백 → 콜백도 같은 도메인일 때만 정상 동작)
+// state 쿠키가 콜백까지 전달된다. OAuth 경로(/auth/cafe24/*)는 /api prefix가 없으므로
+// 일반 API base와 분리한다. (미설정 시 API base에서 /api를 떼어 폴백)
 const OAUTH_BASE =
   process.env.NEXT_PUBLIC_OAUTH_BASE ||
-  process.env.NEXT_PUBLIC_API_BASE ||
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/api\/?$/, "") ||
   "http://127.0.0.1:8000";
 
 export default function LoginPage() {

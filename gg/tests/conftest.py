@@ -68,7 +68,9 @@ async def client(session_maker, monkeypatch):
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_session_maker] = _override_get_session_maker
     transport = ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+    # 백엔드 API는 모두 /api prefix 아래에 있으므로 base_url에 /api를 포함한다.
+    # (Cafe24 OAuth 경로 /auth/cafe24/* 만 prefix 없이 노출되며, 테스트에선 호출 안 함)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test/api") as c:
         yield c
     app.dependency_overrides.clear()
 
