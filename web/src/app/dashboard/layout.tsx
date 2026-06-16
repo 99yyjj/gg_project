@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { BarChart3, LogOut, Package, Palette, Settings, Sparkles, Truck } from "lucide-react";
+import { BarChart3, LogOut, Package, Settings, Sparkles, Truck } from "lucide-react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -36,14 +36,6 @@ export default function DashboardLayout({
     }
   }, [isError, router]);
 
-  // 온보딩(쇼핑몰 꾸미기) 미완료 → setup 페이지로. setup 페이지 본인은 통과.
-  useEffect(() => {
-    if (!me) return;
-    if (me.onboarding_completed) return;
-    if (pathname.startsWith("/dashboard/shop-setup")) return;
-    router.replace("/dashboard/shop-setup");
-  }, [me, pathname, router]);
-
   if (isLoading || !me) {
     return (
       <main className="flex-1 flex items-center justify-center text-slate-900">
@@ -69,12 +61,6 @@ export default function DashboardLayout({
           GG
         </Link>
         <nav className="flex flex-col gap-1 text-sm">
-          <NavLink
-            href="/dashboard/shop-setup"
-            label="쇼핑몰 꾸미기"
-            icon={<Palette className="w-4 h-4" />}
-            active={pathname.startsWith("/dashboard/shop-setup")}
-          />
           <NavLink
             href="/dashboard/products"
             label="상품"

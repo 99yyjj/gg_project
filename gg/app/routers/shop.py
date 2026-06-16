@@ -19,6 +19,7 @@ from app.deps import get_db, get_session_maker, make_cafe24_client
 from app.models.review import Review
 from app.models.user_product import UserProduct
 from app.schemas.category import CategoryListResponse, CategoryResponse
+from app.schemas.order import OrderCreate, OrderCreateResponse
 from app.schemas.product import ProductListResponse, ProductSummary
 from app.schemas.review import (
     ReviewCreate,
@@ -31,6 +32,7 @@ from app.schemas.shop_template import ShopTemplate
 from app.services.ai_service import get_ai_service
 from app.services.product_service import _to_summary
 from app.services.review_service import ReviewService, analyze_and_save
+from app.services.store_order_service import StoreOrderService
 from app.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
@@ -339,3 +341,27 @@ async def list_shop_categories(
         for c in raw
     ]
     return CategoryListResponse(items=items, total=len(items))
+
+
+# ─────────────── 공개 주문 (손님용) ───────────────
+
+
+@router.post(
+    "/{username}/orders",
+    response_model=OrderCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="주문 생성 (공개, 손님용)",
+)
+async def create_shop_order(
+    username: str,
+    payload: OrderCreate,
+    db: AsyncSession = Depends(get_db),
+) -> OrderCreateResponse:
+    """손님이 장바구니에서 주문하면 해당 쇼핑몰(사장님) 소유의 주문으로 DB에 저장한다.
+
+    이렇게 저장된 주문은 사장님 대시보드의 주문배송관리 / 판매성과 페이지에서
+    바로 조회·집계된다(카페24를 거치지 않는 자체 주문 흐름).
+    """
+    user = await _get_user_or_404(username, db)
+    order = await StoreOrderService(db).create_order(user.id, payload)
+    return OrderCreateResponse(order_no=order.order_no)

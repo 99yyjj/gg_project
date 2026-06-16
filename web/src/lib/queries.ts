@@ -15,6 +15,8 @@ import {
   ProductSummary,
   ProductUpdateRequest,
   RegenerateReplyResponse,
+  ReversePriceRequest,
+  ReversePriceResponse,
   Review,
   ReviewCreateRequest,
   ReviewFilter,
@@ -318,6 +320,17 @@ export async function generateMarketingCopy(
 ): Promise<AIMarketingCopyResponse> {
   const { data } = await api.post<AIMarketingCopyResponse>(
     "/ai/marketing-copy",
+    payload
+  );
+  return data;
+}
+
+/** 목표 수익을 받아 수수료 역산 판매가를 계산한다. ('가격 설정' 버튼 전용) */
+export async function calcReversePrice(
+  payload: ReversePriceRequest
+): Promise<ReversePriceResponse> {
+  const { data } = await api.post<ReversePriceResponse>(
+    "/ai/reverse-price",
     payload
   );
   return data;

@@ -93,6 +93,15 @@ export type AIMarketingCopyResponse = {
   tags: string[];
 };
 
+export type ReversePriceRequest = {
+  target_profit: number;
+  fee_rate?: number;
+};
+
+export type ReversePriceResponse = {
+  sale_price: number;
+};
+
 export type AIImageAnalysisResponse = {
   file_id: string;
   product_name: string;

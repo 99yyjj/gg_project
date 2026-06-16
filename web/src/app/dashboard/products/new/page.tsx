@@ -76,9 +76,6 @@ export default function NewProductPage() {
     <div className="max-w-3xl">
       <header className="mb-6">
         <h1 className="text-2xl font-bold">신규 상품 등록</h1>
-        <p className="text-sm text-slate-900 mt-1">
-          입력한 정보가 Cafe24에 즉시 등록됩니다.
-        </p>
       </header>
       <ProductForm
         values={values}

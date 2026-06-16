@@ -1,16 +1,54 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
 
 import { useToast } from "@/components/toast";
 import { useCart } from "@/lib/cart";
+import { createShopOrder } from "@/lib/shop-api";
+import { errorMessage } from "@/lib/api";
 
 export default function CartPage() {
   const { username } = useParams<{ username: string }>();
   const toast = useToast();
   const { items, total, count, setQty, remove, clear } = useCart(username);
+
+  // 주문서 모달 상태
+  const [checkout, setCheckout] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [doneOrderNo, setDoneOrderNo] = useState<string | null>(null);
+
+  async function submitOrder() {
+    if (!name.trim()) {
+      toast.push("주문자 이름을 입력해 주세요.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await createShopOrder(username, {
+        buyer_name: name.trim(),
+        buyer_phone: phone.trim(),
+        address: address.trim(),
+        items: items.map((i) => ({
+          product_no: i.product_no,
+          product_name: i.product_name,
+          price: i.price ?? 0,
+          quantity: i.qty,
+        })),
+      });
+      clear();
+      setDoneOrderNo(res.order_no);
+    } catch (e) {
+      toast.push(`주문에 실패했습니다. ${errorMessage(e, "")}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div>
@@ -123,7 +161,7 @@ export default function CartPage() {
               </div>
               <button
                 type="button"
-                onClick={() => toast.push("주문/결제 기능은 준비 중입니다.")}
+                onClick={() => setCheckout(true)}
                 className="mt-5 w-full py-3 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
               >
                 주문하기
@@ -146,6 +184,100 @@ export default function CartPage() {
       <footer className="text-center py-10 text-xs text-slate-400">
         Powered by GG
       </footer>
+
+      {/* 주문서 / 주문 완료 모달 */}
+      {checkout && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => !submitting && setCheckout(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {doneOrderNo ? (
+              // ── 주문 완료 ──
+              <div className="text-center py-4">
+                <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto" />
+                <h3 className="mt-4 text-lg font-bold text-slate-900">주문이 접수되었습니다</h3>
+                <p className="mt-2 text-sm text-slate-500">
+                  주문번호 <span className="font-semibold text-slate-700">{doneOrderNo}</span>
+                </p>
+                <Link
+                  href={`/shop/${username}`}
+                  className="mt-6 inline-block w-full py-3 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
+                >
+                  쇼핑 계속하기
+                </Link>
+              </div>
+            ) : (
+              // ── 주문서 입력 ──
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold">주문서 작성</h3>
+                  <button
+                    type="button"
+                    onClick={() => setCheckout(false)}
+                    className="text-slate-400 hover:text-slate-700"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <Field label="주문자 이름 *">
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="홍길동"
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </Field>
+                  <Field label="연락처">
+                    <input
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="010-0000-0000"
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </Field>
+                  <Field label="배송지">
+                    <input
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="서울시 ..."
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </Field>
+                </div>
+
+                <div className="mt-5 flex items-center justify-between text-sm font-bold">
+                  <span>총 결제금액</span>
+                  <span className="text-emerald-600">{total.toLocaleString()}원</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={submitOrder}
+                  disabled={submitting}
+                  className="mt-4 w-full py-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold"
+                >
+                  {submitting ? "주문 처리 중…" : "주문 완료하기"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-slate-600">{label}</span>
+      <div className="mt-1">{children}</div>
+    </label>
   );
 }

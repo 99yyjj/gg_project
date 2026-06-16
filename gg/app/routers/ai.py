@@ -17,6 +17,8 @@ from app.schemas.ai import (
     AIImageAnalysisResponse,
     AIMarketingCopyRequest,
     AIMarketingCopyResponse,
+    ReversePriceRequest,
+    ReversePriceResponse,
 )
 from app.services.ai_service import get_ai_service
 
@@ -103,6 +105,32 @@ async def generate_marketing_copy(
         faqs=faq_result,
         recommended_category_no=recommended_cat_no
     )
+
+
+@router.post(
+    "/reverse-price",
+    response_model=ReversePriceResponse,
+    summary="목표 수익 기반 판매가 역산 ('가격 설정' 버튼 전용)",
+)
+async def reverse_price(
+    request: ReversePriceRequest,
+    _: User = Depends(get_current_user),
+) -> ReversePriceResponse:
+    """
+    목표 수익(target_profit)을 입력받아, 플랫폼 수수료를 떼고도
+    그 수익이 남도록 책정해야 할 판매가를 역산해 돌려준다.
+    상품 등록 폼의 '가격 설정' 버튼에서만 호출된다 (마케팅 문구 생성과 무관).
+    """
+    sale_price = calculate_reverse_price(
+        original_price=request.target_profit,
+        fee_rate=request.fee_rate,
+    )
+    if sale_price <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="목표 수익을 0원보다 크게 입력해야 판매가를 계산할 수 있습니다.",
+        )
+    return ReversePriceResponse(sale_price=sale_price)
 
 
 @router.post(

@@ -1,26 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, Link2 } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 import { useMe } from "@/lib/queries";
-
-// Cafe24 OAuth는 콜백(공개 HTTPS 도메인)과 같은 출처에서 시작해야 state 쿠키가
-// 콜백까지 전달된다. OAuth 경로(/auth/cafe24/*)는 /api prefix가 없으므로 일반 API
-// base와 분리한다. (미설정 시 API base에서 /api를 떼어 폴백)
-const OAUTH_BASE =
-  process.env.NEXT_PUBLIC_OAUTH_BASE ||
-  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/api\/?$/, "") ||
-  "http://127.0.0.1:8000";
 
 export default function SettingsPage() {
   const { data: me } = useMe();
 
   if (!me) return null;
-
-  function handleCafe24Login() {
-    window.location.href = `${OAUTH_BASE}/auth/cafe24/login`;
-  }
 
   return (
     <div className="max-w-2xl">
@@ -44,28 +32,6 @@ export default function SettingsPage() {
         >
           <ExternalLink className="w-4 h-4" /> 열기
         </Link>
-      </div>
-
-      {/* Cafe24 OAuth 연결 */}
-      <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-2xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-blue-800">Cafe24 API 연결</p>
-            <p className="text-xs text-blue-600 mt-0.5">
-              OAuth 2.0 인증을 완료해야 상품 등록·수정이 가능합니다.
-            </p>
-          </div>
-          <button
-            onClick={handleCafe24Login}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 whitespace-nowrap"
-          >
-            <Link2 className="w-4 h-4" />
-            Cafe24 로그인
-          </button>
-        </div>
-        <p className="text-xs text-blue-500 mt-2">
-          팝업 창에서 Cafe24 계정으로 로그인하면 자동으로 토큰이 저장됩니다.
-        </p>
       </div>
 
       <section className="bg-white rounded-2xl border border-slate-200 p-6 grid grid-cols-2 gap-x-6 gap-y-4 text-sm">

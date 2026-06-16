@@ -35,6 +35,16 @@ class ProductPricingResponse(BaseModel):
     margin_preview: int = Field(..., description="예상 순수익 마진 금액")
 
 
+class ReversePriceRequest(BaseModel):
+    """'가격 설정' 버튼 전용. 목표 수익을 받아 수수료 역산 판매가를 계산한다."""
+    target_profit: float = Field(..., gt=0, description="사장님이 정산받고 싶은 목표 순수익(원)")
+    fee_rate: float = Field(0.1, ge=0, lt=1, description="플랫폼 수수료율 (예: 10% → 0.1)")
+
+
+class ReversePriceResponse(BaseModel):
+    sale_price: int = Field(..., description="목표 수익을 남기기 위해 책정해야 할 판매가(원), 10원 단위 올림")
+
+
 class ProductFAQItem(BaseModel):
     q: str = Field(..., description="소비자 예상 질문")
     a: str = Field(..., description="친절한 답변 내용")

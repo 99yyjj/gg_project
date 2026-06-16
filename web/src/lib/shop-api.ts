@@ -83,6 +83,37 @@ export async function fetchShopCategories(
 
 // ─────────────── 공개 리뷰 ───────────────
 
+export type ShopOrderItemInput = {
+  product_no: number;
+  product_name: string;
+  price: number;
+  quantity: number;
+};
+
+export type ShopOrderCreatePayload = {
+  buyer_name: string;
+  buyer_phone: string;
+  address: string;
+  items: ShopOrderItemInput[];
+};
+
+export type ShopOrderCreateResponse = {
+  order_no: string;
+  message: string;
+};
+
+// 손님이 장바구니에서 '주문하기'를 누르면 호출. 인증 불필요(공개).
+export async function createShopOrder(
+  username: string,
+  payload: ShopOrderCreatePayload
+): Promise<ShopOrderCreateResponse> {
+  const { data } = await shopApi.post<ShopOrderCreateResponse>(
+    `/shop/${username}/orders`,
+    payload
+  );
+  return data;
+}
+
 export type ShopReview = {
   id: number;
   product_no: number;

@@ -27,6 +27,7 @@ from app.models.user import User
 # FastAPI 인스턴스를 가려버리므로 from-import로 가져온다.
 from app.models.user_product import UserProduct  # noqa: F401
 from app.models.review import Review  # noqa: F401
+from app.models.order import Order, OrderItem  # noqa: F401
 
 
 @pytest_asyncio.fixture

@@ -31,9 +31,6 @@ export default function ProductsPage() {
       <header className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">상품 관리</h1>
-          <p className="text-sm text-slate-900 mt-1">
-            Cafe24와 직접 연결됩니다. 우리 DB에는 저장되지 않습니다.
-          </p>
         </div>
         <div className="flex gap-2">
           <button

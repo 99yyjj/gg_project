@@ -1,15 +1,11 @@
 "use client";
 
 import { Camera, Eye, ImageIcon, Loader2, Trash2, Undo2, Upload, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const ALLOWED_IMAGE_MIME = ["image/jpeg", "image/png"];
 const ALLOWED_IMAGE_LABEL = "JPG, PNG";
 
-import {
-  EditProductImagesPicker,
-  NewProductImagesPicker,
-} from "@/components/product-images-picker";
 import ProductPreviewModal from "@/components/product-preview-modal";
 import { errorMessage } from "@/lib/api";
 import { analyzeProductImage } from "@/lib/queries";
@@ -82,6 +78,19 @@ export default function ProductForm({
   const toast = useToast();
   const [analyzing, setAnalyzing] = useState(false);
   const [preview, setPreview] = useState(false);
+
+  // 새로 선택한 대표 이미지의 미리보기 object-URL.
+  const [detailThumb, setDetailThumb] = useState<string | null>(null);
+  useEffect(() => {
+    const f = values.detail_image_file;
+    if (!f) {
+      setDetailThumb(null);
+      return;
+    }
+    const url = URL.createObjectURL(f);
+    setDetailThumb(url);
+    return () => URL.revokeObjectURL(url);
+  }, [values.detail_image_file]);
 
   function update<K extends keyof ProductFormValues>(
     k: K,
@@ -168,44 +177,33 @@ export default function ProductForm({
         </Field>
       </section>
 
-      {/* 이미지 — 대표 이미지 한 자리에서 여러 장 픽 */}
+      {/* 이미지 — 대표 이미지 한 장 */}
       <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
         <h2 className="font-semibold">상품 이미지</h2>
-        {productNo ? (
-          <EditProductImagesPicker
-            productNo={productNo}
-            existingCoverUrl={values.detail_image}
-            coverMarkedForDeletion={values.delete_detail_image}
-            pendingCoverFile={values.detail_image_file}
-            onPendingCoverFileChange={(file) =>
-              setValues({
-                ...values,
-                detail_image_file: file,
-                delete_detail_image: file ? false : values.delete_detail_image,
-              })
-            }
-            onMarkCoverDeletion={() =>
-              setValues({
-                ...values,
-                delete_detail_image: true,
-                detail_image_file: null,
-              })
-            }
-            onUndoCoverDeletion={() => update("delete_detail_image", false)}
-          />
-        ) : (
-          <NewProductImagesPicker
-            coverFile={values.detail_image_file}
-            extraFiles={values.additional_image_files}
-            onChange={({ coverFile, extraFiles }) =>
-              setValues({
-                ...values,
-                detail_image_file: coverFile,
-                additional_image_files: extraFiles,
-              })
-            }
-          />
-        )}
+        <ImagePicker
+          label="대표 이미지"
+          newPreview={detailThumb}
+          existingUrl={productNo ? values.detail_image : ""}
+          fileName={values.detail_image_file?.name}
+          hasNewFile={!!values.detail_image_file}
+          markedForDeletion={values.delete_detail_image}
+          onPickFile={(file) =>
+            setValues({
+              ...values,
+              detail_image_file: file,
+              delete_detail_image: false,
+            })
+          }
+          onCancelPick={() => update("detail_image_file", null)}
+          onMarkDeletion={() =>
+            setValues({
+              ...values,
+              delete_detail_image: true,
+              detail_image_file: null,
+            })
+          }
+          onUndoDeletion={() => update("delete_detail_image", false)}
+        />
       </section>
 
       {/* 상품 설명 (AI 사진 분석) */}

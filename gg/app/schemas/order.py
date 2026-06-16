@@ -8,6 +8,29 @@
 from pydantic import BaseModel, Field
 
 
+class OrderItemInput(BaseModel):
+    """손님이 주문하는 상품 한 줄 (장바구니에서 전달)."""
+
+    product_no: int
+    product_name: str = Field("", max_length=255)
+    price: int = Field(0, ge=0)
+    quantity: int = Field(1, ge=1)
+
+
+class OrderCreate(BaseModel):
+    """손님 화면 '주문하기' 요청 본문."""
+
+    buyer_name: str = Field(..., min_length=1, max_length=50, description="주문자명")
+    buyer_phone: str = Field("", max_length=30, description="연락처")
+    address: str = Field("", max_length=255, description="배송지")
+    items: list[OrderItemInput] = Field(..., min_length=1, description="주문 상품 목록")
+
+
+class OrderCreateResponse(BaseModel):
+    order_no: str = Field(..., description="생성된 주문번호")
+    message: str = Field("주문이 접수되었습니다.", description="안내 메시지")
+
+
 class OrderSummary(BaseModel):
     """주문배송관리 테이블 한 줄."""
 
